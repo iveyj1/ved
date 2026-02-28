@@ -527,17 +527,14 @@ class Editor:
             pos = idx
         self.cx = pos + 1
 
+    _FIND_DISPATCH = {"f": "_motion_f", "F": "_motion_F",
+                       "t": "_motion_t", "T": "_motion_T"}
+    _FIND_REVERSE = {"f": "F", "F": "f", "t": "T", "T": "t"}
+
     def _exec_find(self, cmd, ch, n=1):
         """Execute a find-char motion and save for repeat."""
         self.last_find = (cmd, ch)
-        if cmd == "f":
-            self._motion_f(ch, n)
-        elif cmd == "F":
-            self._motion_F(ch, n)
-        elif cmd == "t":
-            self._motion_t(ch, n)
-        elif cmd == "T":
-            self._motion_T(ch, n)
+        getattr(self, self._FIND_DISPATCH[cmd])(ch, n)
 
     def _repeat_find(self, reverse=False, n=1):
         """Repeat last f/t/F/T. If reverse, swap direction."""
@@ -545,15 +542,8 @@ class Editor:
             return
         cmd, ch = self.last_find
         if reverse:
-            cmd = {"f": "F", "F": "f", "t": "T", "T": "t"}[cmd]
-        if cmd == "f":
-            self._motion_f(ch, n)
-        elif cmd == "F":
-            self._motion_F(ch, n)
-        elif cmd == "t":
-            self._motion_t(ch, n)
-        elif cmd == "T":
-            self._motion_T(ch, n)
+            cmd = self._FIND_REVERSE[cmd]
+        getattr(self, self._FIND_DISPATCH[cmd])(ch, n)
 
     # ── Match bracket (%) ────────────────────────────────────────────
 
