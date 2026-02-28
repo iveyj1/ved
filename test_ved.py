@@ -1135,6 +1135,434 @@ def test_undo_at_oldest():
     assert code == 0
     print("  PASS: undo at oldest")
 
+# ── Phase 17: gg and G motions ────────────────────────────────────────────
+
+def test_G_goes_to_last_line():
+    """G moves cursor to last line."""
+    path = write_temp("line1\nline2\nline3\nline4\nline5\n")
+    keys = b"GA$$$\x1b:wq\r"  # G goes to last line, A appends $$$
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "line5$$$" in content, f"G did not reach last line: {content!r}"
+    print("  PASS: G goes to last line")
+
+def test_gg_goes_to_first_line():
+    """gg moves cursor to first line."""
+    path = write_temp("line1\nline2\nline3\nline4\n")
+    keys = b"GggA***\x1b:wq\r"  # G to last, gg to first, A appends
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "line1***" in content, f"gg did not reach first line: {content!r}"
+    print("  PASS: gg goes to first line")
+
+def test_count_G():
+    """3G goes to line 3."""
+    path = write_temp("line1\nline2\nline3\nline4\n")
+    keys = b"3GA@@@\x1b:wq\r"  # 3G to line 3, A appends
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "line3@@@" in content, f"3G did not go to line 3: {content!r}"
+    print("  PASS: count G")
+
+def test_zero_goes_to_column_zero():
+    """0 moves cursor to column 0."""
+    path = write_temp("hello world\n")
+    keys = b"llll0i^\x1b:wq\r"  # llll to go right, 0 to col 0, i^ to insert
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content.startswith("^hello"), f"0 did not go to col 0: {content!r}"
+    print("  PASS: 0 goes to column 0")
+
+def test_dgg_deletes_to_first():
+    """dgg from line 3 deletes lines 1-3."""
+    path = write_temp("line1\nline2\nline3\nline4\nline5\n")
+    keys = b"jjdgg:wq\r"  # go to line 3, dgg deletes lines 1-3
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "line1" not in content and "line2" not in content and "line3" not in content
+    assert "line4" in content
+    print("  PASS: dgg deletes to first")
+
+# ── Phase 18: f t F T ; , ─────────────────────────────────────────────────
+
+def test_f_motion():
+    """fx finds character x on current line."""
+    path = write_temp("hello world\n")
+    keys = b"fwi@\x1b:wq\r"  # fw finds 'w', i@ inserts before it
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "hello @world" in content, f"f motion failed: {content!r}"
+    print("  PASS: f motion")
+
+def test_t_motion():
+    """tx moves to character before x."""
+    path = write_temp("hello world\n")
+    keys = b"twi@\x1b:wq\r"  # tw goes before 'w', i@ inserts
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "hello@ world" in content, f"t motion failed: {content!r}"
+    print("  PASS: t motion")
+
+def test_F_motion():
+    """Fx finds character backward."""
+    path = write_temp("hello world\n")
+    keys = b"fwFli@\x1b:wq\r"  # fw to 'w' (pos 6), Fl finds 'l' backward (pos 3)
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "hel@lo" in content, f"F motion failed: {content!r}"
+    print("  PASS: F motion")
+
+def test_semicolon_repeats_find():
+    """Semicolon repeats last f/t find."""
+    path = write_temp("abababab\n")
+    keys = b"fa;i@\x1b:wq\r"  # fa finds 'a' at pos 2, ; repeats to pos 4
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content.startswith("abab@a"), f"; repeat failed: {content!r}"
+    print("  PASS: ; repeats find")
+
+def test_comma_reverses_find():
+    """Comma reverses last f/t find."""
+    path = write_temp("abababab\n")
+    keys = b"fa;;,i@\x1b:wq\r"  # fa, ;;, , reverses
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "@a" in content, f", reverse find failed: {content!r}"
+    print("  PASS: , reverses find")
+
+def test_dfl_deletes_to_char():
+    """dfl deletes from cursor to 'l' inclusive."""
+    path = write_temp("hello world\n")
+    keys = b"dfl:wq\r"  # delete from cursor through 'l'
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content.startswith("lo world"), f"df failed: {content!r}"
+    print("  PASS: df deletes to char")
+
+# ── Phase 19: >> and << indent ────────────────────────────────────────────
+
+def test_indent_line():
+    """>> indents current line by 4 spaces."""
+    path = write_temp("hello\nworld\n")
+    keys = b">>:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    lines = content.split("\n")
+    assert lines[0] == "    hello", f">> failed: {lines[0]!r}"
+    assert lines[1] == "world", f">> affected wrong line: {lines[1]!r}"
+    print("  PASS: >> indents line")
+
+def test_dedent_line():
+    """<< removes up to 4 leading spaces."""
+    path = write_temp("    hello\nworld\n")
+    keys = b"<<:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    lines = content.split("\n")
+    assert lines[0] == "hello", f"<< failed: {lines[0]!r}"
+    print("  PASS: << dedents line")
+
+def test_count_indent():
+    """3>> indents 3 lines."""
+    path = write_temp("a\nb\nc\nd\n")
+    keys = b"3>>:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    lines = content.split("\n")
+    assert lines[0] == "    a", f"3>> failed on line 1: {lines[0]!r}"
+    assert lines[1] == "    b", f"3>> failed on line 2: {lines[1]!r}"
+    assert lines[2] == "    c", f"3>> failed on line 3: {lines[2]!r}"
+    assert lines[3] == "d", f"3>> affected line 4: {lines[3]!r}"
+    print("  PASS: count indent")
+
+# ── Phase 20: Autoindent ──────────────────────────────────────────────────
+
+def test_autoindent_on_enter():
+    """Enter in insert mode copies indentation from current line."""
+    path = write_temp("    hello\n")
+    keys = b"A\rworld\x1b:wq\r"  # A to end, Enter, type 'world'
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    lines = content.split("\n")
+    assert lines[1] == "    world", f"Autoindent failed: {lines[1]!r}"
+    print("  PASS: autoindent on enter")
+
+def test_autoindent_disabled():
+    """:set noautoindent disables autoindent."""
+    path = write_temp("    hello\n")
+    keys = b":set noautoindent\rA\rworld\x1b:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    lines = content.split("\n")
+    assert lines[1] == "world", f"Autoindent not disabled: {lines[1]!r}"
+    print("  PASS: autoindent disabled")
+
+# ── Phase 21: % match brackets ────────────────────────────────────────────
+
+def test_percent_match_paren():
+    """% jumps to matching parenthesis."""
+    path = write_temp("(hello world)\n")
+    keys = b"%i@\x1b:wq\r"  # % from ( jumps to ), i@ inserts before )
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content.startswith("(hello world@)"), f"% failed: {content!r}"
+    print("  PASS: % matches parens")
+
+def test_percent_match_brace():
+    """% works with braces across lines."""
+    path = write_temp("{\nhello\n}\n")
+    keys = b"%A@\x1b:wq\r"  # % on { goes to }, A@ appends
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "}@" in content, f"% brace failed: {content!r}"
+    print("  PASS: % matches braces")
+
+# ── Phase 22: O and o ─────────────────────────────────────────────────────
+
+def test_o_opens_below():
+    """o opens new line below and enters insert mode."""
+    path = write_temp("line1\nline3\n")
+    keys = b"oline2\x1b:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    lines = content.split("\n")
+    assert lines[0] == "line1"
+    assert lines[1] == "line2"
+    assert lines[2] == "line3"
+    print("  PASS: o opens below")
+
+def test_O_opens_above():
+    """O opens new line above and enters insert mode."""
+    path = write_temp("line2\nline3\n")
+    keys = b"Oline1\x1b:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    lines = content.split("\n")
+    assert lines[0] == "line1"
+    assert lines[1] == "line2"
+    print("  PASS: O opens above")
+
+def test_o_autoindent():
+    """o with autoindent copies leading whitespace."""
+    path = write_temp("    indented\n")
+    keys = b"ohello\x1b:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    lines = content.split("\n")
+    assert lines[1] == "    hello", f"o autoindent failed: {lines[1]!r}"
+    print("  PASS: o autoindent")
+
+# ── Phase 23: iw/iW/aw/aW text objects ───────────────────────────────────
+
+def test_diw_deletes_word():
+    """diw deletes the word under cursor."""
+    path = write_temp("hello world test\n")
+    keys = b"wdiw:wq\r"  # w to 'world', diw deletes it
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "world" not in content, f"diw failed: {content!r}"
+    print("  PASS: diw deletes word")
+
+def test_daw_deletes_word_with_space():
+    """daw deletes word and trailing space."""
+    path = write_temp("hello world test\n")
+    keys = b"wdaw:wq\r"  # w to 'world', daw includes space
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "world" not in content, f"daw failed: {content!r}"
+    # "hello " + "test" should not have double space
+    assert "hello test" in content or "hello  test" not in content
+    print("  PASS: daw deletes word + space")
+
+def test_ciw_changes_word():
+    """ciw replaces the word under cursor."""
+    path = write_temp("hello world test\n")
+    keys = b"wciwNEW\x1b:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "NEW" in content, f"ciw failed: {content!r}"
+    assert "world" not in content
+    print("  PASS: ciw changes word")
+
+# ── Phase 24: Text objects for brackets and quotes ────────────────────────
+
+def test_di_paren():
+    """di( deletes inside parentheses."""
+    path = write_temp("call(arg1, arg2)\n")
+    keys = b"f(ldi(:wq\r"  # f( to '(', l inside, di( deletes inner
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "call()" in content, f"di( failed: {content!r}"
+    print("  PASS: di( deletes inside parens")
+
+def test_da_bracket():
+    """da[ deletes including brackets."""
+    path = write_temp("arr[1, 2, 3]end\n")
+    keys = b"f[lda[:wq\r"  # f[ to '[', l inside, da[ deletes all
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "[" not in content, f"da[ failed: {content!r}"
+    assert "arrend" in content
+    print("  PASS: da[ deletes including brackets")
+
+def test_di_quote():
+    """di\" deletes inside double quotes."""
+    path = write_temp('say "hello world" ok\n')
+    keys = b'fhdi":wq\r'  # fh inside quotes, di" deletes inside
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert 'say "" ok' in content, f'di" failed: {content!r}'
+    print('  PASS: di" deletes inside quotes')
+
+# ── Phase 25: Comment toggle ─────────────────────────────────────────────
+
+def test_gcc_comments_line():
+    """gcc toggles comment on current line."""
+    path = write_temp("hello\nworld\n")
+    keys = b"gcc:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    lines = content.split("\n")
+    assert lines[0] == "# hello", f"gcc failed: {lines[0]!r}"
+    assert lines[1] == "world"
+    print("  PASS: gcc comments line")
+
+def test_gcc_uncomments_line():
+    """gcc uncomments an already commented line."""
+    path = write_temp("# hello\nworld\n")
+    keys = b"gcc:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    lines = content.split("\n")
+    assert lines[0] == "hello", f"gcc uncomment failed: {lines[0]!r}"
+    print("  PASS: gcc uncomments line")
+
+def test_visual_gc():
+    """Visual mode gc toggles comments on selection."""
+    path = write_temp("line1\nline2\nline3\n")
+    keys = b"Vjgc:wq\r"  # V, j to select 2 lines, gc to toggle
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    lines = content.split("\n")
+    assert lines[0] == "# line1", f"visual gc failed: {lines[0]!r}"
+    assert lines[1] == "# line2", f"visual gc failed: {lines[1]!r}"
+    assert lines[2] == "line3"
+    print("  PASS: visual gc comments")
+
+def test_set_comment_char():
+    """:set comment=// changes comment character."""
+    path = write_temp("hello\n")
+    keys = b":set comment=//\rgcc:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    lines = content.split("\n")
+    assert lines[0] == "// hello", f"set comment failed: {lines[0]!r}"
+    print("  PASS: set comment character")
+
+# ── Phase 26: Dot repeat ─────────────────────────────────────────────────
+
+def test_dot_repeat_dd():
+    """. repeats dd."""
+    path = write_temp("line1\nline2\nline3\nline4\n")
+    keys = b"dd.:wq\r"  # dd deletes line1, . repeats to delete line2
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "line1" not in content and "line2" not in content
+    assert "line3" in content
+    print("  PASS: dot repeat dd")
+
+def test_dot_repeat_insert():
+    """. repeats insert action."""
+    path = write_temp("aaa\nbbb\nccc\n")
+    keys = b"A!!!\x1bj.:wq\r"  # A!!!<Esc> on line1, j, . on line2
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "aaa!!!" in content, f"dot insert failed: {content!r}"
+    assert "bbb!!!" in content, f"dot insert repeat failed: {content!r}"
+    print("  PASS: dot repeat insert")
+
+def test_dot_repeat_indent():
+    """. repeats >>."""
+    path = write_temp("hello\nworld\n")
+    keys = b">>j.:wq\r"  # >> indents line1, j moves down, . repeats
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    lines = content.split("\n")
+    assert lines[0] == "    hello", f"dot indent failed: {lines[0]!r}"
+    assert lines[1] == "    world", f"dot indent repeat failed: {lines[1]!r}"
+    print("  PASS: dot repeat >>")
+
+# ── Phase 27: :read, :!, :read ! ──────────────────────────────────────────
+
+def test_read_file():
+    """:read inserts file contents below cursor."""
+    src = write_temp("inserted line\n")
+    path = write_temp("original\n")
+    keys = f":read {src}\r:wq\r".encode()
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(src)
+    os.unlink(path)
+    assert code == 0
+    assert "original" in content and "inserted line" in content
+    lines = content.split("\n")
+    assert lines[0] == "original"
+    assert lines[1] == "inserted line"
+    print("  PASS: :read file")
+
+def test_read_command():
+    """:read !echo inserts command output below cursor."""
+    path = write_temp("original\n")
+    keys = b":read !echo hello_from_cmd\r:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "hello_from_cmd" in content, f":read ! failed: {content!r}"
+    print("  PASS: :read !command")
+
+def test_bang_command():
+    """:! runs a shell command and shows output."""
+    path = write_temp("test\n")
+    keys = b":! echo hello_bang\r:q\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "hello_bang" in screen, f":! failed: {screen[-500:]}"
+    print("  PASS: :! shell command")
+
 # ── Runner ─────────────────────────────────────────────────────────────────
 
 def run_phase(name, tests):
@@ -1281,6 +1709,76 @@ def main():
         test_undo_visual_delete,
         test_redo_cleared_on_new_edit,
         test_undo_at_oldest,
+    ])
+
+    total_failed += run_phase("Phase 17 — gg and G Motions", [
+        test_G_goes_to_last_line,
+        test_gg_goes_to_first_line,
+        test_count_G,
+        test_zero_goes_to_column_zero,
+        test_dgg_deletes_to_first,
+    ])
+
+    total_failed += run_phase("Phase 18 — f t F T ; ,", [
+        test_f_motion,
+        test_t_motion,
+        test_F_motion,
+        test_semicolon_repeats_find,
+        test_comma_reverses_find,
+        test_dfl_deletes_to_char,
+    ])
+
+    total_failed += run_phase("Phase 19 — Indent >>  <<", [
+        test_indent_line,
+        test_dedent_line,
+        test_count_indent,
+    ])
+
+    total_failed += run_phase("Phase 20 — Autoindent", [
+        test_autoindent_on_enter,
+        test_autoindent_disabled,
+    ])
+
+    total_failed += run_phase("Phase 21 — % Bracket Match", [
+        test_percent_match_paren,
+        test_percent_match_brace,
+    ])
+
+    total_failed += run_phase("Phase 22 — O and o", [
+        test_o_opens_below,
+        test_O_opens_above,
+        test_o_autoindent,
+    ])
+
+    total_failed += run_phase("Phase 23 — iw/aw Text Objects", [
+        test_diw_deletes_word,
+        test_daw_deletes_word_with_space,
+        test_ciw_changes_word,
+    ])
+
+    total_failed += run_phase("Phase 24 — Bracket/Quote Objects", [
+        test_di_paren,
+        test_da_bracket,
+        test_di_quote,
+    ])
+
+    total_failed += run_phase("Phase 25 — Comment Toggle", [
+        test_gcc_comments_line,
+        test_gcc_uncomments_line,
+        test_visual_gc,
+        test_set_comment_char,
+    ])
+
+    total_failed += run_phase("Phase 26 — Dot Repeat", [
+        test_dot_repeat_dd,
+        test_dot_repeat_insert,
+        test_dot_repeat_indent,
+    ])
+
+    total_failed += run_phase("Phase 27 — :read :! :read !", [
+        test_read_file,
+        test_read_command,
+        test_bang_command,
     ])
 
     print(f"\n{'=' * 60}")

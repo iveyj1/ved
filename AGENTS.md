@@ -11,8 +11,8 @@ ved is a modal, vi-inspired terminal text editor written in Python. It uses raw 
 
 **Files**
 
-- `ved.py` — the entire editor (~1280 lines)
-- `test_ved.py` — PTY-based smoke tests (plain asserts, no framework, 82 tests)
+- `ved.py` — the entire editor (~1950 lines)
+- `test_ved.py` — PTY-based smoke tests (plain asserts, no framework, 114 tests)
 - `PLAN.md` — phased development plan with specifications
 - `AGENTS.md` — this document
 
@@ -40,11 +40,11 @@ In this chat, I'll provide requirements for numbered development phases.  When e
 - VISUAL / VISUAL LINE — selection with reverse video highlight
 - SEARCH — `/` or `?` prompt for pattern input, Enter executes
 
-**Normal mode commands** — `h j k l` (movement), `w W b B e E` (word motions), `i I a A` (enter insert), `v V` (enter visual), `:` (enter command), `/` `?` (search forward/backward), `n` `N` (repeat search same/opposite direction), `u` (undo), `Ctrl-R` (redo). All motions accept a count prefix (`3j`, `5w`, etc.). Operators `d y c` enter operator-pending mode and combine with a motion (`dw`, `cw`, `yj`). Doubled operators (`dd`, `yy`, `cc`) act linewise. Shortcuts `D Y C` operate from cursor to end-of-line (D/C) or yank the whole line (Y). `p` / `P` paste from the unnamed register after/before the cursor.
+**Normal mode commands** — `h j k l` (movement), `w W b B e E` (word motions), `gg` / `G` (go to first/last line, or line N with count), `0` (column 0), `f t F T` (find char on line), `;` `,` (repeat/reverse find), `%` (match bracket), `i I a A` (enter insert), `o` / `O` (open line below/above), `v V` (enter visual), `:` (enter command), `/` `?` (search forward/backward), `n` `N` (repeat search same/opposite direction), `u` (undo), `Ctrl-R` (redo), `.` (dot repeat last change). All motions accept a count prefix (`3j`, `5w`, `3G`, etc.). Operators `d y c` enter operator-pending mode and combine with a motion (`dw`, `cw`, `yj`). Operators also combine with text objects (`diw`, `ci(`, `da"`, etc.). Doubled operators (`dd`, `yy`, `cc`) act linewise. `>>` / `<<` indent/dedent lines by 4 spaces. `gcc` toggles line comment. Shortcuts `D Y C` operate from cursor to end-of-line (D/C) or yank the whole line (Y). `p` / `P` paste from the unnamed register after/before the cursor.
 
-**Command mode** — `:new`, `:e[dit] <path>`, `:w[rite] [path]`, `:q[uit]` (refuses if dirty), `:q!` (force), `:wq`, `:[range]s/pat/repl/[g]` (substitute), `:set <option>` (set wrap/nowrap/number/nonumber/relativenumber/norelativenumber).
+**Command mode** — `:new`, `:e[dit] <path>`, `:w[rite] [path]`, `:q[uit]` (refuses if dirty), `:q!` (force), `:wq`, `:[range]s/pat/repl/[g]` (substitute), `:set <option>` (set wrap/nowrap/number/nonumber/relativenumber/norelativenumber/autoindent/noautoindent/comment=X), `:read <file>` (insert file below cursor), `:read !<cmd>` (insert command output below cursor), `:! <cmd>` (run shell command and show output).
 
-**Insert mode** — printable characters insert at cursor. Enter splits the line. Backspace deletes backward or joins lines. Arrow keys (Up/Down/Left/Right) move the cursor via `_exec_motion`, same as in Normal mode. Esc returns to NORMAL without moving the cursor.
+**Insert mode** — printable characters insert at cursor. Enter splits the line (with autoindent, copies leading whitespace). Backspace deletes backward or joins lines. Arrow keys (Up/Down/Left/Right) move the cursor via `_exec_motion`, same as in Normal mode. Esc returns to NORMAL without moving the cursor.
 
 **Full terminal** — ved uses the entire terminal window. Content rows = terminal height minus 2 (status bar + command/message bar). Lines longer than the terminal width are truncated at the screen edge.
 
@@ -59,7 +59,7 @@ ved is vi-inspired, not vi-compatible. These differences are intentional:
 
 **Single unnamed register, no macros.** ved has one unnamed register that holds the last deleted or yanked text. Every yank/delete also copies to the system clipboard via OSC 52. There are no named registers and no macros.
 
-**Minimal ex commands.** vi has dozens of ex commands. ved supports only: new, edit, write, quit, wq, set, substitute. Abbreviations (`:e`, `:w`, `:q`) work. That's it.
+**Minimal ex commands.** vi has dozens of ex commands. ved supports only: new, edit, write, quit, wq, set, substitute, read, and bang. Abbreviations (`:e`, `:w`, `:q`, `:r`) work. That's it.
 
 
 ## Architecture
@@ -80,7 +80,7 @@ ved is vi-inspired, not vi-compatible. These differences are intentional:
 
 **Motion dispatch** — `_exec_motion(key, n)` is the single source of truth for all motion execution (`h l j k w W b B e E` and arrow keys). It is called by `handle_normal`, `handle_visual`, and `_apply_motion` (which wraps it with cursor save/restore for operator-pending). The `_MOTION_KEYS` frozenset provides O(1) membership checks.
 
-**Operator-pending** — typing `d`, `y`, or `c` in Normal mode sets `pending_op` and saves the current count in `pending_count`. The next key is treated as a motion. The operator then acts on the range from the original cursor to where the motion would land. Doubled operators (e.g., `dd`) are linewise. `_exec_operator` coordinates motion simulation (via `_apply_motion`), range normalization, and the delete/yank/change action.
+**Operator-pending** — typing `d`, `y`, or `c` in Normal mode sets `pending_op` and saves the current count in `pending_count`. The next key is treated as a motion. The operator then acts on the range from the original cursor to where the motion would land. Doubled operators (e.g., `dd`) are linewise. `_exec_operator` coordinates motion simulation (via `_apply_motion`), range normalization, and the delete/yank/change action. Text objects (`iw`, `aw`, `i(`, `a"`, etc.) are handled as a sub-state within operator-pending via `_pending_textobj`.
 
 **Register and clipboard** — `_set_register(text, linewise)` stores text in the unnamed register and writes it to the system clipboard via OSC 52 (`\x1b]52;c;<base64>\x07`). `_paste_after` / `_paste_before` insert register contents — linewise paste inserts whole lines above/below; charwise paste inserts inline. `reg_linewise` tracks whether the register holds lines or characters, which determines paste behavior.
 
@@ -94,7 +94,7 @@ ved is vi-inspired, not vi-compatible. These differences are intentional:
 
 **Snapshot placement** — snapshots are taken at two granularities:
 
-- Atomic: before any destructive Normal/Visual mode operation (`dd`, `d{motion}`, `D`, `C`, `cc`, `c{motion}`, `p`, `P`, visual `d`/`x`/`c`, substitute). Also before entering Insert mode from `i`/`a`/`I`/`A`.
+- Atomic: before any destructive Normal/Visual mode operation (`dd`, `d{motion}`, `D`, `C`, `cc`, `c{motion}`, `p`, `P`, visual `d`/`x`/`c`, substitute, `>>`, `<<`, `gcc`). Also before entering Insert mode from `i`/`a`/`I`/`A`/`o`/`O`.
 - Periodic during Insert: every 2 WORD boundaries (space→non-space transitions) typed from the keyboard. This breaks long insert sessions into undoable chunks of ~2 words each.
 
 **Dirty flag with undo** — `_undo_save_depth` records `len(_undo_stack)` at the last save. `_undo_branched` is set `True` when clearing the redo stack would discard the save point (i.e., the user undid past the save, then made a new edit). `_update_dirty()` sets `buf.dirty = (len(_undo_stack) != _undo_save_depth) or _undo_branched`. On save, `_undo_save_depth` is updated and `_undo_branched` is cleared. On `:e`/`:new`, both stacks are cleared and save depth reset.
@@ -102,6 +102,22 @@ ved is vi-inspired, not vi-compatible. These differences are intentional:
 **Word motions** — characters are classified as word (`[a-zA-Z0-9_]`), punctuation, or space. Small word motions (`w b e`) treat punctuation runs as separate words. Big WORD motions (`W B E`) only split on whitespace. The algorithm uses `_forward`/`_backward` helpers to step through the buffer one character at a time, crossing line boundaries.
 
 **Count prefixes** — digits `1-9` (and subsequent `0-9`) accumulate in `self.count`. When a motion key arrives, it executes `max(count, 1)` times. Count resets to 0 after any non-digit key.
+
+**Find-char motions** — `f t F T` set `_pending_find` and wait for the next key as the target character. `_exec_find(cmd, ch, n)` executes the motion and saves it in `last_find` for `;` (repeat) and `,` (reverse). `_motion_f/_motion_F` scan forward/backward on the current line; `_motion_t/_motion_T` stop one position short.
+
+**Bracket matching** — `%` invokes `_motion_percent()`, which scans forward from the cursor for any bracket character (`({[]})`), then uses depth counting to find the matching bracket, scanning across lines.
+
+**Indent / Dedent** — `>>` adds 4 spaces to the start of `n` lines. `<<` removes up to 4 leading spaces. Both accept a count prefix.
+
+**Autoindent** — when `opt_autoindent` is True (default), Enter in Insert mode copies the leading whitespace from the current line to the new line. Also applies to `o`/`O` (open line below/above).
+
+**Comment toggle** — `gcc` toggles line comments for `n` lines using `opt_comment` (default `#`). `_toggle_comment` checks whether all non-empty lines in the range are already commented; if so, it removes the comment prefix, otherwise adds it. `gc` also works in Visual mode. The comment character is configurable via `:set comment=X`.
+
+**Text objects** — `_find_word_object(big, around)` handles `iw`/`iW`/`aw`/`aW`. `_find_bracket_object(open_ch, close_ch, around)` handles `i(`/`a(`/`i[`/`a[`/`i{`/`a{` using depth counting. `_find_quote_object(quote_ch, around)` handles `i"`/`a"`/`i'`/`a'` on a single line. All return `(sy, sx, ey, ex)` tuples consumed by operator-pending.
+
+**Dot repeat** — `_start_dot(count, first_keys)` begins recording keystrokes for the current action, pre-populating with any keys already consumed (e.g., the `d` in `dd`). `_save_dot()` stores the recording as `_last_action = (count, keys)`. `.` invokes `_dot_repeat(n, extra_n)` which replays the saved keys through `handle_normal`/`handle_insert` with `_replaying_dot = True` to prevent nested recording. The dot count can override the original count.
+
+**Read and bang** — `:read <file>` inserts file contents below the cursor. `:read !<cmd>` inserts command output. `:! <cmd>` runs a shell command, shows output, and waits for Enter. `_exec_read(arg)` handles the first two; bang commands use `subprocess.run`.
 
 
 ## Implementation Notes
@@ -133,7 +149,7 @@ ved is vi-inspired, not vi-compatible. These differences are intentional:
 
 **Assertions** — tests check exit code, file contents after `:wq`, and screen output for markers like reverse video escapes, filenames, or tilde rows. Screen output is decoded as UTF-8 with replacement.
 
-**Coverage** — 82 tests across 15 phases: scaffold (5), editing (10), word motions (6), visual mode (4), polish (4), resize (2), count prefixes (3), edit operations (11), visual edit (5), search (6), replace (6), line wrap (4), line numbers (4), insert arrow keys (2), undo/redo (10). Run with `python3 test_ved.py`.
+**Coverage** — 114 tests across 27 phases: scaffold (5), editing (10), word motions (6), visual mode (4), polish (4), resize (2), count prefixes (3), edit operations (11), visual edit (5), search (6), replace (6), line wrap (4), line numbers (4), insert arrow keys (2), undo/redo (10), gg/G/0 (5), f/t/F/T/;/, (6), indent (3), autoindent (2), % (2), o/O (3), word objects (3), bracket/quote objects (3), comment (4), dot repeat (3), read/bang (3). Run with `python3 test_ved.py`.
 
 
 ## Workflow for AI Agents

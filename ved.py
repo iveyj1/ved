@@ -138,6 +138,7 @@ class Editor:
         self.count = 0  # pending count prefix (0 = no count)
         self.pending_op = ""  # operator-pending: 'd', 'y', 'c', or ""
         self.pending_count = 0  # count saved when entering operator-pending
+        self.pending_extra_n = None  # raw count for G/gg motions
         self.register = ""  # unnamed register (last yank/delete text)
         self.reg_linewise = False  # was last register content linewise?
         self.search_pattern = ""  # last / or ? search
@@ -151,6 +152,14 @@ class Editor:
         self._undo_branched = False # True if save point was discarded
         self._insert_word_count = 0 # WORD boundaries since last snapshot
         self._insert_last_space = True  # for WORD boundary counting
+        self.last_find = None       # (cmd, ch) for f/t/F/T repeat
+        self.opt_autoindent = True  # autoindent on Enter
+        self.opt_comment = "#"      # comment character for toggle
+        self._last_action = None    # (count, keys) for dot repeat
+        self._recording_keys = []   # keys being recorded for dot
+        self._recording = False     # currently recording for dot
+        self._replaying_dot = False # currently replaying a dot action
+        self._dot_count = 0         # count when recording started
         self.term = Terminal()
         self._update_size()
 
@@ -250,6 +259,37 @@ class Editor:
         self._insert_word_count = 0
         self._insert_last_space = True
         self.mode = Mode.INSERT
+
+    # ── Dot repeat helpers ─────────────────────────────────────────────
+
+    def _start_dot(self, count, first_keys=None):
+        """Start recording a dot-repeatable action.
+        first_keys: list of keys already consumed for this action."""
+        if not self._replaying_dot:
+            self._recording = True
+            self._recording_keys = list(first_keys) if first_keys else []
+            self._dot_count = count
+
+    def _save_dot(self):
+        """Save the recorded keys as the last action."""
+        if self._recording and not self._replaying_dot:
+            self._recording = False
+            self._last_action = (self._dot_count, self._recording_keys[:])
+
+    def _dot_repeat(self, n, extra_n):
+        """Replay the last change action."""
+        if not self._last_action:
+            return
+        saved_count, keys = self._last_action
+        use_count = n if extra_n is not None else saved_count
+        self._replaying_dot = True
+        self.count = use_count
+        for key in keys:
+            if self.mode == Mode.NORMAL:
+                self.handle_normal(key)
+            elif self.mode == Mode.INSERT:
+                self.handle_insert(key)
+        self._replaying_dot = False
 
     # ── Character classification for word motions ──────────────────────
 
@@ -383,15 +423,16 @@ class Editor:
     # ── Motion dispatch (shared by normal, visual, operator-pending) ──
 
     _MOTION_KEYS = frozenset(
-        "h l j k w W b B e E".split()
-        + ["LEFT", "RIGHT", "DOWN", "UP"]
+        "h l j k w W b B e E G 0".split()
+        + ["LEFT", "RIGHT", "DOWN", "UP", "gg"]
     )
 
-    def _exec_motion(self, key, n=1):
-        """Execute a motion key n times. Returns True if key was a motion."""
+    def _exec_motion(self, key, n=1, extra_n=None):
+        """Execute a motion key n times. Returns True if key was a motion.
+        extra_n is the raw count (None if no count given) for motions like G/gg."""
         if key not in self._MOTION_KEYS:
             return False
-        for _ in range(n):
+        for _ in range(n if key not in ("G", "gg", "0") else 1):
             if key == "h" or key == "LEFT":
                 self.cx -= 1
                 self._clamp_cursor()
@@ -416,7 +457,295 @@ class Editor:
                 self.motion_e(big=False)
             elif key == "E":
                 self.motion_e(big=True)
+            elif key == "G":
+                self.cy = min(n - 1, len(self.buf.lines) - 1) if extra_n is not None else len(self.buf.lines) - 1
+                self.cx = 0
+            elif key == "gg":
+                self.cy = min(n - 1, len(self.buf.lines) - 1) if extra_n is not None else 0
+                self.cx = 0
+            elif key == "0":
+                self.cx = 0
         return True
+
+    # ── Find character motions (f/t/F/T) ─────────────────────────────
+
+    def _motion_f(self, ch, n=1):
+        """Move to nth occurrence of ch to the right on current line."""
+        line = self.buf.lines[self.cy]
+        pos = self.cx
+        for _ in range(n):
+            idx = line.find(ch, pos + 1)
+            if idx == -1:
+                return
+            pos = idx
+        self.cx = pos
+
+    def _motion_F(self, ch, n=1):
+        """Move to nth occurrence of ch to the left on current line."""
+        line = self.buf.lines[self.cy]
+        pos = self.cx
+        for _ in range(n):
+            idx = line.rfind(ch, 0, pos)
+            if idx == -1:
+                return
+            pos = idx
+        self.cx = pos
+
+    def _motion_t(self, ch, n=1):
+        """Move to just before nth occurrence of ch to the right."""
+        line = self.buf.lines[self.cy]
+        pos = self.cx
+        for _ in range(n):
+            idx = line.find(ch, pos + 1)
+            if idx == -1:
+                return
+            pos = idx
+        self.cx = pos - 1 if pos > 0 else 0
+
+    def _motion_T(self, ch, n=1):
+        """Move to just after nth occurrence of ch to the left."""
+        line = self.buf.lines[self.cy]
+        pos = self.cx
+        for _ in range(n):
+            idx = line.rfind(ch, 0, pos)
+            if idx == -1:
+                return
+            pos = idx
+        self.cx = pos + 1
+
+    def _exec_find(self, cmd, ch, n=1):
+        """Execute a find-char motion and save for repeat."""
+        self.last_find = (cmd, ch)
+        if cmd == "f":
+            self._motion_f(ch, n)
+        elif cmd == "F":
+            self._motion_F(ch, n)
+        elif cmd == "t":
+            self._motion_t(ch, n)
+        elif cmd == "T":
+            self._motion_T(ch, n)
+
+    def _repeat_find(self, reverse=False, n=1):
+        """Repeat last f/t/F/T. If reverse, swap direction."""
+        if not self.last_find:
+            return
+        cmd, ch = self.last_find
+        if reverse:
+            cmd = {"f": "F", "F": "f", "t": "T", "T": "t"}[cmd]
+        if cmd == "f":
+            self._motion_f(ch, n)
+        elif cmd == "F":
+            self._motion_F(ch, n)
+        elif cmd == "t":
+            self._motion_t(ch, n)
+        elif cmd == "T":
+            self._motion_T(ch, n)
+
+    # ── Match bracket (%) ────────────────────────────────────────────
+
+    _BRACKETS = {"(": ")", ")": "(", "[": "]", "]": "[", "{": "}", "}": "{"}
+    _OPEN_BRACKETS = frozenset("([{")
+
+    def _motion_percent(self):
+        """Move to matching bracket."""
+        line = self.buf.lines[self.cy]
+        if self.cx >= len(line):
+            return
+        ch = line[self.cx]
+        if ch not in self._BRACKETS:
+            # Scan forward on current line for a bracket
+            for i in range(self.cx + 1, len(line)):
+                if line[i] in self._BRACKETS:
+                    self.cx = i
+                    ch = line[i]
+                    break
+            else:
+                return
+        match = self._BRACKETS[ch]
+        forward = ch in self._OPEN_BRACKETS
+        depth = 1
+        y, x = self.cy, self.cx
+        while depth > 0:
+            if forward:
+                x += 1
+                if x >= len(self.buf.lines[y]):
+                    y += 1
+                    x = 0
+                if y >= len(self.buf.lines):
+                    return
+            else:
+                x -= 1
+                if x < 0:
+                    y -= 1
+                    if y < 0:
+                        return
+                    x = len(self.buf.lines[y]) - 1
+                    if x < 0:
+                        continue
+            c = self.buf.lines[y][x] if x < len(self.buf.lines[y]) else ""
+            if c == ch:
+                depth += 1
+            elif c == match:
+                depth -= 1
+        self.cy, self.cx = y, x
+
+    # ── Indent / Dedent ──────────────────────────────────────────────
+
+    def _indent_lines(self, start, count):
+        """Add 4 spaces to beginning of count lines starting at start."""
+        for i in range(start, min(start + count, len(self.buf.lines))):
+            self.buf.lines[i] = "    " + self.buf.lines[i]
+        self.buf.dirty = True
+
+    def _dedent_lines(self, start, count):
+        """Remove up to 4 leading spaces from count lines starting at start."""
+        for i in range(start, min(start + count, len(self.buf.lines))):
+            line = self.buf.lines[i]
+            remove = 0
+            while remove < 4 and remove < len(line) and line[remove] == " ":
+                remove += 1
+            if remove > 0:
+                self.buf.lines[i] = line[remove:]
+        self.buf.dirty = True
+
+    def _toggle_comment(self, start, count):
+        """Toggle line comments using opt_comment prefix."""
+        prefix = self.opt_comment + " "
+        end = min(start + count, len(self.buf.lines))
+        lines = self.buf.lines[start:end]
+        # If all non-empty lines are commented, uncomment; otherwise comment
+        all_commented = all(
+            ln.lstrip().startswith(self.opt_comment) or ln.strip() == ""
+            for ln in lines
+        )
+        for i in range(start, end):
+            line = self.buf.lines[i]
+            if all_commented:
+                # Remove first occurrence of comment prefix
+                stripped = line.lstrip()
+                indent = line[:len(line) - len(stripped)]
+                if stripped.startswith(prefix):
+                    self.buf.lines[i] = indent + stripped[len(prefix):]
+                elif stripped.startswith(self.opt_comment):
+                    self.buf.lines[i] = indent + stripped[len(self.opt_comment):]
+            else:
+                if line.strip():  # don't comment empty lines
+                    indent = line[:len(line) - len(line.lstrip())]
+                    self.buf.lines[i] = indent + prefix + line.lstrip()
+        self.buf.dirty = True
+
+    # ── Text object helpers ──────────────────────────────────────────
+
+    def _find_word_object(self, big=False, around=False):
+        """Return (sy, sx, ey, ex) for inner/around word at cursor."""
+        classify = self._WORD_class if big else self._char_class
+        ch = self._get_char(self.cy, self.cx)
+        if ch is None:
+            return None
+        cur_class = classify(ch)
+        # Find start of word
+        sx = self.cx
+        while sx > 0:
+            c = self._get_char(self.cy, sx - 1)
+            if c is None or classify(c) != cur_class:
+                break
+            sx -= 1
+        # Find end of word
+        ex = self.cx
+        line = self.buf.lines[self.cy]
+        while ex + 1 < len(line):
+            c = self._get_char(self.cy, ex + 1)
+            if c is None or classify(c) != cur_class:
+                break
+            ex += 1
+        ex += 1  # exclusive end
+        if around:
+            # Include trailing spaces, or leading if no trailing
+            while ex < len(line) and line[ex] == " ":
+                ex += 1
+            if ex == self.cx + 1:  # no trailing, try leading
+                while sx > 0 and line[sx - 1] == " ":
+                    sx -= 1
+        return self.cy, sx, self.cy, ex
+
+    def _find_bracket_object(self, open_ch, close_ch, around=False):
+        """Return (sy, sx, ey, ex) for inner/around bracket pair."""
+        # Search backward for opening bracket
+        depth = 0
+        y, x = self.cy, self.cx
+        # Check if cursor is on a bracket
+        found = False
+        while True:
+            if y < 0:
+                return None
+            line = self.buf.lines[y]
+            while x >= 0:
+                if x < len(line):
+                    c = line[x]
+                    if c == close_ch:
+                        depth += 1
+                    elif c == open_ch:
+                        if depth == 0:
+                            found = True
+                            break
+                        depth -= 1
+                x -= 1
+            if found:
+                break
+            y -= 1
+            if y < 0:
+                return None
+            x = len(self.buf.lines[y]) - 1
+
+        oy, ox = y, x  # opening bracket position
+        # Search forward for closing bracket
+        depth = 0
+        y, x = oy, ox + 1
+        found = False
+        while y < len(self.buf.lines):
+            line = self.buf.lines[y]
+            while x < len(line):
+                c = line[x]
+                if c == open_ch:
+                    depth += 1
+                elif c == close_ch:
+                    if depth == 0:
+                        found = True
+                        break
+                    depth -= 1
+                x += 1
+            if found:
+                break
+            y += 1
+            x = 0
+
+        if not found:
+            return None
+        cy, cx = y, x  # closing bracket position
+        if around:
+            return oy, ox, cy, cx + 1
+        else:
+            # Inner: from char after open to char before close
+            sx, sy2 = ox + 1, oy
+            ex, ey2 = cx, y
+            return sy2, sx, ey2, ex
+
+    def _find_quote_object(self, quote_ch, around=False):
+        """Return (sy, sx, ey, ex) for inner/around quote pair on current line."""
+        line = self.buf.lines[self.cy]
+        # Find pairs of quotes on current line
+        positions = [i for i, c in enumerate(line) if c == quote_ch]
+        if len(positions) < 2:
+            return None
+        # Find which pair the cursor is inside
+        for i in range(0, len(positions) - 1, 2):
+            start, end = positions[i], positions[i + 1]
+            if start <= self.cx <= end:
+                if around:
+                    return self.cy, start, self.cy, end + 1
+                else:
+                    return self.cy, start + 1, self.cy, end
+        return None
 
     # ── Visual selection helpers ─────────────────────────────────────
 
@@ -638,19 +967,19 @@ class Editor:
 
     # ── Operator-pending motion execution ──────────────────────────────
 
-    def _apply_motion(self, motion_key, n):
+    def _apply_motion(self, motion_key, n, extra_n=None):
         """Execute a motion n times from current position.
         Returns (new_cy, new_cx) without modifying cursor."""
         saved_cy, saved_cx = self.cy, self.cx
-        if not self._exec_motion(motion_key, n):
+        if not self._exec_motion(motion_key, n, extra_n=extra_n):
             return None
         result = (self.cy, self.cx)
         self.cy, self.cx = saved_cy, saved_cx
         return result
 
     def _is_linewise_motion(self, key):
-        """j, k, and doubled operators are linewise."""
-        return key in ("j", "k", "DOWN", "UP")
+        """j, k, G, gg, and doubled operators are linewise."""
+        return key in ("j", "k", "DOWN", "UP", "G", "gg")
 
     # ── Delete/Yank/Change helpers ─────────────────────────────────────
 
@@ -720,10 +1049,10 @@ class Editor:
         self.buf.dirty = True
         return text
 
-    def _exec_operator(self, op, motion_key, n):
+    def _exec_operator(self, op, motion_key, n, extra_n=None):
         """Execute operator (d/y/c) with a motion."""
         linewise = self._is_linewise_motion(motion_key)
-        target = self._apply_motion(motion_key, n)
+        target = self._apply_motion(motion_key, n, extra_n=extra_n)
         if target is None:
             return
         ty, tx = target
@@ -755,19 +1084,154 @@ class Editor:
             return
 
         n = max(self.count, 1)
+        extra_n = self.count if self.count > 0 else None
         self.count = 0  # reset after consuming
+
+        # Dot repeat recording — record keys (not count digits) while active
+        if self._recording and not self._replaying_dot:
+            self._recording_keys.append(key)
+
+        # 'g' prefix: wait for next key (gg, gc)
+        if hasattr(self, '_pending_g') and self._pending_g:
+            self._pending_g = False
+            if key == "g":
+                key = "gg"
+            elif key == "c":
+                # gcc — toggle comment (enter pending for second c)
+                self._start_dot(n, "gc")
+                self.pending_op = "gc"
+                self.pending_count = n
+                self.pending_extra_n = extra_n
+                return
+            else:
+                return
+        elif key == "g" and not self.pending_op:
+            self._pending_g = True
+            self.count = 0 if extra_n is None else n
+            return
+
+        # gcc / gc+motion: toggle comment
+        if self.pending_op == "gc":
+            op_n = self.pending_count
+            self.pending_op = ""
+            self.pending_count = 0
+            self.pending_extra_n = None
+            if key == "c":
+                # gcc — toggle comment on current line(s)
+                self._snapshot()
+                self._toggle_comment(self.cy, op_n)
+                self._save_dot()
+            self._clamp_cursor()
+            self._ensure_scroll()
+            return
+
+        # f/t/F/T prefix: wait for target character
+        if hasattr(self, '_pending_find') and self._pending_find:
+            cmd = self._pending_find
+            self._pending_find = None
+            if self.pending_op:
+                # In operator-pending mode: simulate find motion
+                op = self.pending_op
+                op_n = self.pending_count
+                self.pending_op = ""
+                self.pending_count = 0
+                self.pending_extra_n = None
+                saved_cy, saved_cx = self.cy, self.cx
+                self._exec_find(cmd, key, n)
+                ty, tx = self.cy, self.cx
+                self.cy, self.cx = saved_cy, saved_cx
+                if (ty, tx) != (saved_cy, saved_cx):
+                    if op in ("d", "c"):
+                        self._snapshot()
+                    # Include the character at target for f motions
+                    if cmd in ("f", "t"):
+                        tx += 1
+                    if op == "d":
+                        self._delete_range(saved_cy, saved_cx, ty, tx)
+                        self._save_dot()
+                    elif op == "y":
+                        self._yank_range(saved_cy, saved_cx, ty, tx)
+                    elif op == "c":
+                        self._delete_range(saved_cy, saved_cx, ty, tx)
+                        self._enter_insert()
+                else:
+                    if op in ("d", "c"):
+                        self._save_dot()
+            else:
+                self._exec_find(cmd, key, n)
+            self._clamp_cursor()
+            self._ensure_scroll()
+            return
 
         # Operator-pending: waiting for a motion after d/y/c
         if self.pending_op:
             op = self.pending_op
             op_n = self.pending_count
+            op_extra_n = self.pending_extra_n
+            # Handle 'g' prefix in operator-pending (e.g. dgg)
+            if hasattr(self, '_pending_g_op') and self._pending_g_op:
+                self._pending_g_op = False
+                if key == "g":
+                    key = "gg"
+            elif key == "g":
+                self._pending_g_op = True
+                return
+            # f/t/F/T in operator-pending
+            if key in ("f", "t", "F", "T"):
+                self._pending_find = key
+                return
+            # Text objects in operator-pending (i/a + w/W/(/)/[/]/{/}/'/"/)
+            if key in ("i", "a"):
+                self._pending_textobj = key
+                return
+            if hasattr(self, '_pending_textobj') and self._pending_textobj:
+                obj_type = self._pending_textobj
+                self._pending_textobj = None
+                around = obj_type == "a"
+                rng = None
+                if key in ("w",):
+                    rng = self._find_word_object(big=False, around=around)
+                elif key in ("W",):
+                    rng = self._find_word_object(big=True, around=around)
+                elif key in ("(", ")", "b"):
+                    rng = self._find_bracket_object("(", ")", around=around)
+                elif key in ("[", "]"):
+                    rng = self._find_bracket_object("[", "]", around=around)
+                elif key in ("{", "}", "B"):
+                    rng = self._find_bracket_object("{", "}", around=around)
+                elif key == '"':
+                    rng = self._find_quote_object('"', around=around)
+                elif key == "'":
+                    rng = self._find_quote_object("'", around=around)
+                if rng:
+                    sy, sx, ey, ex = rng
+                    if op in ("d", "c"):
+                        self._snapshot()
+                    if op == "d":
+                        self._delete_range(sy, sx, ey, ex)
+                        self._save_dot()
+                    elif op == "y":
+                        self._yank_range(sy, sx, ey, ex)
+                    elif op == "c":
+                        self._delete_range(sy, sx, ey, ex)
+                        self._enter_insert()
+                else:
+                    self._save_dot()
+                self.pending_op = ""
+                self.pending_count = 0
+                self.pending_extra_n = None
+                self._clamp_cursor()
+                self._ensure_scroll()
+                return
             self.pending_op = ""
             self.pending_count = 0
-            # Doubled operator = line-wise (dd, yy, cc)
+            self.pending_extra_n = None
+            # Doubled operator = line-wise (dd, yy, cc, >>, <<)
             if key == op:
                 if op == "d":
                     self._snapshot()
                     self._delete_lines(self.cy, op_n)
+                    self._save_dot()
                 elif op == "y":
                     end = min(self.cy + op_n - 1, len(self.buf.lines) - 1)
                     self._yank_range(self.cy, 0, end, 0, linewise=True)
@@ -783,68 +1247,141 @@ class Editor:
                     self.cx = 0
                     self.buf.dirty = True
                     self._enter_insert()
+                elif op == ">":
+                    self._snapshot()
+                    self._indent_lines(self.cy, op_n)
+                    self._save_dot()
+                elif op == "<":
+                    self._snapshot()
+                    self._dedent_lines(self.cy, op_n)
+                    self._save_dot()
             else:
                 if op in ("d", "c"):
                     self._snapshot()
-                self._exec_operator(op, key, op_n * n)
+                self._exec_operator(op, key, op_n * n, extra_n=extra_n)
+                if op == "d":
+                    self._save_dot()
+                # c enters insert — recording continues
             self._clamp_cursor()
             self._ensure_scroll()
             return
 
         # Standard motions
-        if self._exec_motion(key, n):
+        if self._exec_motion(key, n, extra_n=extra_n):
             pass  # motion already executed
+        # f/t/F/T — wait for target char
+        elif key in ("f", "t", "F", "T"):
+            self._pending_find = key
+            return
+        # ; and , — repeat last find
+        elif key == ";":
+            self._repeat_find(reverse=False, n=n)
+        elif key == ",":
+            self._repeat_find(reverse=True, n=n)
+        # % — match bracket
+        elif key == "%":
+            self._motion_percent()
         # Operators — enter pending state
         elif key == "d":
+            self._start_dot(n, "d")
             self.pending_op = "d"
             self.pending_count = n
-            return  # wait for motion
+            self.pending_extra_n = extra_n
+            return
         elif key == "y":
             self.pending_op = "y"
             self.pending_count = n
+            self.pending_extra_n = extra_n
             return
         elif key == "c":
+            self._start_dot(n, "c")
             self.pending_op = "c"
             self.pending_count = n
+            self.pending_extra_n = extra_n
+            return
+        # >> indent, << dedent
+        elif key == ">":
+            self._start_dot(n, ">")
+            self.pending_op = ">"
+            self.pending_count = n
+            self.pending_extra_n = extra_n
+            return
+        elif key == "<":
+            self._start_dot(n, "<")
+            self.pending_op = "<"
+            self.pending_count = n
+            self.pending_extra_n = extra_n
             return
         # Line-wise shortcuts
         elif key == "D":
-            # Delete from cursor to end of line
+            self._start_dot(n, "D")
             self._snapshot()
             self._delete_to_eol()
+            self._save_dot()
         elif key == "Y":
-            # Yank entire line (like yy)
             end = min(self.cy + n - 1, len(self.buf.lines) - 1)
             self._yank_range(self.cy, 0, end, 0, linewise=True)
             self.msg = f"{n} line(s) yanked"
         elif key == "C":
-            # Change from cursor to end of line
+            self._start_dot(n, "C")
             self._snapshot()
             self._delete_to_eol()
             self._enter_insert()
         # Paste
         elif key == "p":
+            self._start_dot(n, "p")
             self._snapshot()
             self._paste_after()
+            self._save_dot()
         elif key == "P":
+            self._start_dot(n, "P")
             self._snapshot()
             self._paste_before()
+            self._save_dot()
+        # O/o — open line
+        elif key == "o":
+            self._start_dot(n, "o")
+            self._snapshot()
+            indent = ""
+            if self.opt_autoindent:
+                line = self.buf.lines[self.cy]
+                indent = line[:len(line) - len(line.lstrip())]
+            self.buf.lines.insert(self.cy + 1, indent)
+            self.cy += 1
+            self.cx = len(indent)
+            self.buf.dirty = True
+            self._enter_insert()
+        elif key == "O":
+            self._start_dot(n, "O")
+            self._snapshot()
+            indent = ""
+            if self.opt_autoindent:
+                line = self.buf.lines[self.cy]
+                indent = line[:len(line) - len(line.lstrip())]
+            self.buf.lines.insert(self.cy, indent)
+            self.cx = len(indent)
+            self.buf.dirty = True
+            self._enter_insert()
         elif key == ":":
             self.mode = Mode.COMMAND
             self.cmd = ""
         elif key == "i":
+            self._start_dot(n, "i")
             self._snapshot()
             self._enter_insert()
         elif key == "a":
+            self._start_dot(n, "a")
             self._snapshot()
             self.cx += 1
             self._enter_insert()
         elif key == "I":
+            self._start_dot(n, "I")
             self._snapshot()
             line = self.buf.lines[self.cy]
             self.cx = len(line) - len(line.lstrip())
             self._enter_insert()
         elif key == "A":
+            self._start_dot(n, "A")
             self._snapshot()
             self.cx = len(self.buf.lines[self.cy])
             self._enter_insert()
@@ -870,6 +1407,9 @@ class Editor:
             self._undo()
         elif key == "CTRL_R":
             self._redo()
+        # . — dot repeat
+        elif key == ".":
+            self._dot_repeat(n, extra_n)
         elif key == "ESC":
             self.pending_op = ""
         self._clamp_cursor()
@@ -910,7 +1450,12 @@ class Editor:
     # ── Insert mode ────────────────────────────────────────────────────
 
     def handle_insert(self, key):
+        # Dot repeat recording in insert mode
+        if self._recording and not self._replaying_dot:
+            self._recording_keys.append(key)
         if key == "ESC":
+            # Save dot recording if active
+            self._save_dot()
             # Stay in place — ved divergence from vi
             self.mode = Mode.NORMAL
             self._clamp_cursor()
@@ -918,9 +1463,12 @@ class Editor:
         if key == "ENTER":
             line = self.buf.lines[self.cy]
             self.buf.lines[self.cy] = line[:self.cx]
-            self.buf.lines.insert(self.cy + 1, line[self.cx:])
+            indent = ""
+            if self.opt_autoindent:
+                indent = line[:len(line) - len(line.lstrip())]
+            self.buf.lines.insert(self.cy + 1, indent + line[self.cx:])
             self.cy += 1
-            self.cx = 0
+            self.cx = len(indent)
             self.buf.dirty = True
         elif key == "BACKSPACE":
             if self.cx > 0:
@@ -1042,9 +1590,77 @@ class Editor:
         elif cmd == "set":
             self._exec_set(arg)
             self.mode = Mode.NORMAL
+        elif cmd == "read" or cmd == "r":
+            self._exec_read(arg)
+            self.mode = Mode.NORMAL
+        elif cmd == "!":
+            if arg:
+                import subprocess
+                try:
+                    result = subprocess.run(
+                        arg, shell=True, capture_output=True, text=True, timeout=10
+                    )
+                    output = result.stdout + result.stderr
+                    self.msg = output.strip()[:200] if output.strip() else "(no output)"
+                except Exception as e:
+                    self.msg = str(e)
+            else:
+                self.msg = "No command given"
+            self.mode = Mode.NORMAL
         else:
             self.msg = f"Not a command: {cmd}"
             self.mode = Mode.NORMAL
+
+    def _exec_read(self, arg):
+        """Handle :read [file] and :read ![command]."""
+        if not arg:
+            self.msg = "Argument required"
+            return
+        arg = arg.strip()
+        if arg.startswith("!"):
+            # :read !command — insert command output below cursor
+            shell_cmd = arg[1:].strip()
+            if not shell_cmd:
+                self.msg = "No command given"
+                return
+            import subprocess
+            try:
+                result = subprocess.run(
+                    shell_cmd, shell=True, capture_output=True, text=True, timeout=10
+                )
+                output = result.stdout
+                if output:
+                    self._snapshot()
+                    lines = output.splitlines()
+                    for i, line in enumerate(lines):
+                        self.buf.lines.insert(self.cy + 1 + i, line)
+                    self.cy += 1
+                    self.cx = 0
+                    self.buf.dirty = True
+                    self.msg = f"{len(lines)} line(s) inserted"
+                else:
+                    self.msg = "(no output)"
+            except Exception as e:
+                self.msg = str(e)
+        else:
+            # :read file — insert file contents below cursor
+            try:
+                with open(arg, "r") as f:
+                    content = f.read()
+                self._snapshot()
+                lines = content.splitlines()
+                if not lines:
+                    lines = [""]
+                for i, line in enumerate(lines):
+                    self.buf.lines.insert(self.cy + 1 + i, line)
+                self.cy += 1
+                self.cx = 0
+                self.buf.dirty = True
+                self.msg = f"{len(lines)} line(s) inserted"
+            except FileNotFoundError:
+                self.msg = f"Can't open \"{arg}\""
+            except Exception as e:
+                self.msg = str(e)
 
     def _exec_set(self, arg):
         """Handle :set <option> commands."""
@@ -1070,6 +1686,15 @@ class Editor:
         elif opt == "norelativenumber":
             self.opt_relnum = False
             self.msg = "relativenumber off"
+        elif opt == "autoindent":
+            self.opt_autoindent = True
+            self.msg = "autoindent on"
+        elif opt == "noautoindent":
+            self.opt_autoindent = False
+            self.msg = "autoindent off"
+        elif opt.startswith("comment="):
+            self.opt_comment = opt[8:]
+            self.msg = f"comment={self.opt_comment}"
         else:
             self.msg = f"Unknown option: {opt}"
 
@@ -1132,6 +1757,36 @@ class Editor:
         if key == "ESC":
             self.mode = Mode.NORMAL
             return
+        # 'g' prefix for gg and gc
+        if key == "g":
+            self._pending_g_visual = True
+            return
+        if hasattr(self, '_pending_g_visual') and self._pending_g_visual:
+            self._pending_g_visual = False
+            if key == "g":
+                key = "gg"
+            elif key == "c":
+                # gc in visual — toggle comment on selected lines
+                sel = self._selection_range()
+                if sel:
+                    sy, sx, ey, ex = sel
+                    self._snapshot()
+                    self._toggle_comment(sy, ey - sy + 1)
+                self.mode = Mode.NORMAL
+                return
+            else:
+                return
+        # f/t/F/T prefix: wait for target character
+        if hasattr(self, '_pending_find_visual') and self._pending_find_visual:
+            cmd = self._pending_find_visual
+            self._pending_find_visual = None
+            self._exec_find(cmd, key, 1)
+            self._clamp_cursor()
+            self._ensure_scroll()
+            return
+        if key in ("f", "t", "F", "T"):
+            self._pending_find_visual = key
+            return
         # Edit operations on selection
         if key in ("d", "x"):
             self._snapshot()
@@ -1145,8 +1800,17 @@ class Editor:
             self._visual_delete()
             self._enter_insert()
             return
+        # ; and , — repeat last find
+        if key == ";":
+            self._repeat_find(reverse=False, n=1)
+        elif key == ",":
+            self._repeat_find(reverse=True, n=1)
+        # % — match bracket
+        elif key == "%":
+            self._motion_percent()
         # Motions — same dispatch as normal mode
-        self._exec_motion(key)
+        else:
+            self._exec_motion(key)
         self._clamp_cursor()
         self._ensure_scroll()
 
