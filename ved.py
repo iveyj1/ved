@@ -814,8 +814,9 @@ class Editor:
             return 1
         return (line_len + content_cols - 1) // content_cols
 
-    def _render_line(self, line, buf_line, sel, out, gutter_width=0):
-        """Render a single buffer line (possibly wrapped). Returns number of screen rows used."""
+    def _render_line(self, line, buf_line, sel, out, gutter_width=0, max_rows=None):
+        """Render a single buffer line (possibly wrapped). Returns number of screen rows used.
+        max_rows limits output to at most that many screen rows (for partial rendering)."""
         gutter = self._gutter_str(buf_line, gutter_width)
         gutter_pad = " " * gutter_width
         content_cols = self.cols - gutter_width
@@ -836,6 +837,8 @@ class Editor:
                 return 1
             rows_used = 0
             for chunk_start in range(0, len(line), content_cols):
+                if max_rows is not None and rows_used >= max_rows:
+                    break
                 chunk = line[chunk_start:chunk_start + content_cols]
                 if rows_used == 0:
                     out.append(gutter)
@@ -894,27 +897,8 @@ class Editor:
 
             rows_available = self.rows - screen_rows_used
             if self.opt_wrap:
-                line_rows = self._line_screen_rows(buf_line)
-                if line_rows > rows_available:
-                    # Partially render — only show what fits
-                    gutter = self._gutter_str(buf_line, gw)
-                    gutter_pad = " " * gw
-                    chunk_idx = 0
-                    for chunk_start in range(0, len(line), content_cols):
-                        if screen_rows_used >= self.rows:
-                            break
-                        chunk = line[chunk_start:chunk_start + content_cols]
-                        if chunk_idx == 0:
-                            out.append(gutter)
-                        else:
-                            out.append(gutter_pad)
-                        self._render_visible(chunk, buf_line, chunk_start, sel, out)
-                        out.append("\x1b[K\r\n")
-                        screen_rows_used += 1
-                        chunk_idx += 1
-                else:
-                    used = self._render_line(line, buf_line, sel, out, gw)
-                    screen_rows_used += used
+                used = self._render_line(line, buf_line, sel, out, gw, max_rows=rows_available)
+                screen_rows_used += used
             else:
                 self._render_line(line, buf_line, sel, out, gw)
                 screen_rows_used += 1
