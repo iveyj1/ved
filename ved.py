@@ -266,6 +266,21 @@ class Editor:
         self._insert_last_space = True
         self.mode = Mode.INSERT
 
+    def _open_line(self, below=True):
+        """Open a new line below (o) or above (O) and enter insert mode."""
+        indent = ""
+        if self.opt_autoindent:
+            line = self.buf.lines[self.cy]
+            indent = line[:len(line) - len(line.lstrip())]
+        if below:
+            self.buf.lines.insert(self.cy + 1, indent)
+            self.cy += 1
+        else:
+            self.buf.lines.insert(self.cy, indent)
+        self.cx = len(indent)
+        self.buf.dirty = True
+        self._enter_insert()
+
     def _enter_op_pending(self, op, n, extra_n, dot=True):
         """Enter operator-pending mode for op, optionally starting dot recording."""
         if dot:
@@ -1329,26 +1344,11 @@ class Editor:
         elif key == "o":
             self._start_dot(n, "o")
             self._snapshot()
-            indent = ""
-            if self.opt_autoindent:
-                line = self.buf.lines[self.cy]
-                indent = line[:len(line) - len(line.lstrip())]
-            self.buf.lines.insert(self.cy + 1, indent)
-            self.cy += 1
-            self.cx = len(indent)
-            self.buf.dirty = True
-            self._enter_insert()
+            self._open_line(below=True)
         elif key == "O":
             self._start_dot(n, "O")
             self._snapshot()
-            indent = ""
-            if self.opt_autoindent:
-                line = self.buf.lines[self.cy]
-                indent = line[:len(line) - len(line.lstrip())]
-            self.buf.lines.insert(self.cy, indent)
-            self.cx = len(indent)
-            self.buf.dirty = True
-            self._enter_insert()
+            self._open_line(below=False)
         elif key == ":":
             self.mode = Mode.COMMAND
             self.cmd = ""
