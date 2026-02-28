@@ -50,6 +50,23 @@ class Buffer:
         self.dirty = False
         return True
 
+
+class BufferState:
+    """Per-buffer state: buffer content, cursor, scroll, and undo history."""
+    __slots__ = ("buf", "cx", "cy", "scroll",
+                 "_undo_stack", "_redo_stack",
+                 "_undo_save_depth", "_undo_branched")
+
+    def __init__(self, path=None):
+        self.buf = Buffer(path)
+        self.cx = 0
+        self.cy = 0
+        self.scroll = 0
+        self._undo_stack = []
+        self._redo_stack = []
+        self._undo_save_depth = 0
+        self._undo_branched = False
+
 # ── Terminal ───────────────────────────────────────────────────────────────
 
 class Terminal:
@@ -122,11 +139,23 @@ class Terminal:
 # ── Editor ─────────────────────────────────────────────────────────────────
 
 class Editor:
-    def __init__(self, path=None):
-        self.buf = Buffer(path)
-        self.cx = 0  # cursor column
-        self.cy = 0  # cursor row (buffer line)
-        self.scroll = 0  # first visible line
+    def __init__(self, paths=None):
+        # Buffer list — always at least one buffer
+        if paths:
+            self.buffers = [BufferState(p) for p in paths]
+        else:
+            self.buffers = [BufferState()]
+        self.buf_idx = 0
+        # Load first buffer's state into working attributes
+        bs = self.buffers[0]
+        self.buf = bs.buf
+        self.cx = bs.cx
+        self.cy = bs.cy
+        self.scroll = bs.scroll
+        self._undo_stack = bs._undo_stack
+        self._redo_stack = bs._redo_stack
+        self._undo_save_depth = bs._undo_save_depth
+        self._undo_branched = bs._undo_branched
         self.mode = Mode.NORMAL
         self.cmd = ""  # command-line input
         self.msg = ""  # status message
@@ -146,10 +175,6 @@ class Editor:
         self.opt_wrap = False  # :set wrap
         self.opt_number = False  # :set number
         self.opt_relnum = False  # :set relativenumber
-        self._undo_stack = []       # list of (lines[:], cx, cy)
-        self._redo_stack = []       # list of (lines[:], cx, cy)
-        self._undo_save_depth = 0   # len(undo_stack) at last save
-        self._undo_branched = False # True if save point was discarded
         self._insert_word_count = 0 # WORD boundaries since last snapshot
         self._insert_last_space = True  # for WORD boundary counting
         self.last_find = None       # (cmd, ch) for f/t/F/T repeat
@@ -179,6 +204,41 @@ class Editor:
         self._clamp_cursor()
         self._ensure_scroll()
         self.render()
+
+    # ── Buffer management ──────────────────────────────────────────────
+
+    def _save_buf_state(self):
+        """Save working attributes back into current BufferState."""
+        bs = self.buffers[self.buf_idx]
+        bs.buf = self.buf
+        bs.cx, bs.cy, bs.scroll = self.cx, self.cy, self.scroll
+        bs._undo_stack = self._undo_stack
+        bs._redo_stack = self._redo_stack
+        bs._undo_save_depth = self._undo_save_depth
+        bs._undo_branched = self._undo_branched
+
+    def _load_buf_state(self, idx):
+        """Load BufferState at idx into working attributes."""
+        self.buf_idx = idx
+        bs = self.buffers[idx]
+        self.buf = bs.buf
+        self.cx, self.cy, self.scroll = bs.cx, bs.cy, bs.scroll
+        self._undo_stack = bs._undo_stack
+        self._redo_stack = bs._redo_stack
+        self._undo_save_depth = bs._undo_save_depth
+        self._undo_branched = bs._undo_branched
+
+    def _switch_buffer(self, idx):
+        """Switch to buffer at idx, saving current state first."""
+        if idx == self.buf_idx:
+            return
+        if idx < 0 or idx >= len(self.buffers):
+            return
+        self._save_buf_state()
+        self._load_buf_state(idx)
+        self._clamp_cursor()
+        self._ensure_scroll()
+        self.mode = Mode.NORMAL
 
     # ── Cursor clamping ────────────────────────────────────────────────
 
@@ -916,7 +976,8 @@ class Editor:
         dirty = " [+]" if self.buf.dirty else ""
         mode_str = self.mode.value
         count_str = str(self.count) if self.count > 0 else ""
-        left = f" {mode_str} | {fname}{dirty}"
+        buf_info = f"[{self.buf_idx + 1}/{len(self.buffers)}] " if len(self.buffers) > 1 else ""
+        left = f" {mode_str} | {buf_info}{fname}{dirty}"
         right = f" {count_str} {self.cy + 1}:{self.cx + 1} "
         pad = self.cols - len(left) - len(right)
         if pad < 0:
@@ -1506,12 +1567,45 @@ class Editor:
                 self.msg = "No write since last change (add ! to override)"
                 self.mode = Mode.NORMAL
                 return
-            self.running = False
+            if len(self.buffers) > 1:
+                # Close current buffer
+                self._save_buf_state()
+                self.buffers.pop(self.buf_idx)
+                if self.buf_idx >= len(self.buffers):
+                    self.buf_idx = len(self.buffers) - 1
+                self._load_buf_state(self.buf_idx)
+                self._clamp_cursor()
+                self._ensure_scroll()
+                self.mode = Mode.NORMAL
+            else:
+                self.running = False
         elif cmd in ("q!", "quit!"):
+            if len(self.buffers) > 1:
+                self._save_buf_state()
+                self.buffers.pop(self.buf_idx)
+                if self.buf_idx >= len(self.buffers):
+                    self.buf_idx = len(self.buffers) - 1
+                self._load_buf_state(self.buf_idx)
+                self._clamp_cursor()
+                self._ensure_scroll()
+                self.mode = Mode.NORMAL
+            else:
+                self.running = False
+        elif cmd in ("qa", "quitall"):
+            dirty = [bs for bs in self.buffers if bs.buf.dirty]
+            if dirty:
+                self.msg = f"{len(dirty)} buffer(s) have unsaved changes (add ! to override)"
+                self.mode = Mode.NORMAL
+                return
+            self.running = False
+        elif cmd in ("qa!", "quitall!"):
             self.running = False
         elif cmd in ("w", "write"):
             path = arg or self.buf.path
             if self.buf.save(path):
+                self._undo_save_depth = len(self._undo_stack)
+                self._undo_branched = False
+                self._update_dirty()
                 n = len(self.buf.lines)
                 self.msg = f'"{self.buf.path}" {n}L written'
             else:
@@ -1522,30 +1616,86 @@ class Editor:
             if self.buf.save(path):
                 self._undo_save_depth = len(self._undo_stack)
                 self._undo_branched = False
-                self.running = False
+                if len(self.buffers) > 1:
+                    self._save_buf_state()
+                    self.buffers.pop(self.buf_idx)
+                    if self.buf_idx >= len(self.buffers):
+                        self.buf_idx = len(self.buffers) - 1
+                    self._load_buf_state(self.buf_idx)
+                    self._clamp_cursor()
+                    self._ensure_scroll()
+                    self.mode = Mode.NORMAL
+                else:
+                    self.running = False
             else:
                 self.msg = "No file name"
                 self.mode = Mode.NORMAL
         elif cmd in ("e", "edit"):
             if arg:
-                self.buf = Buffer(arg)
-                self.cx = 0
-                self.cy = 0
-                self.scroll = 0
+                # Add new buffer and switch to it
+                self._save_buf_state()
+                new_bs = BufferState(arg)
+                self.buffers.insert(self.buf_idx + 1, new_bs)
+                self._load_buf_state(self.buf_idx + 1)
                 self.msg = f'"{arg}"'
             else:
                 self.msg = "No file name"
             self.mode = Mode.NORMAL
         elif cmd == "new":
-            self.buf = Buffer()
-            self.cx = 0
-            self.cy = 0
-            self.scroll = 0
-            self._undo_stack.clear()
-            self._redo_stack.clear()
-            self._undo_save_depth = 0
-            self._undo_branched = False
+            self._save_buf_state()
+            new_bs = BufferState()
+            self.buffers.insert(self.buf_idx + 1, new_bs)
+            self._load_buf_state(self.buf_idx + 1)
             self.msg = "[New]"
+            self.mode = Mode.NORMAL
+        elif cmd in ("n", "next", "bn"):
+            if len(self.buffers) > 1:
+                idx = (self.buf_idx + 1) % len(self.buffers)
+                self._switch_buffer(idx)
+            self.mode = Mode.NORMAL
+        elif cmd in ("p", "prev", "bp"):
+            if len(self.buffers) > 1:
+                idx = (self.buf_idx - 1) % len(self.buffers)
+                self._switch_buffer(idx)
+            self.mode = Mode.NORMAL
+        elif cmd == "ls":
+            parts_list = []
+            for i, bs in enumerate(self.buffers):
+                marker = "%" if i == self.buf_idx else " "
+                dirty = "+" if bs.buf.dirty else " "
+                name = bs.buf.path or "[No Name]"
+                parts_list.append(f"{i+1}{marker}{dirty} {name}")
+            self.msg = "  ".join(parts_list)
+            self.mode = Mode.NORMAL
+        elif cmd in ("k", "bdelete"):
+            if self.buf.dirty:
+                self.msg = "No write since last change (add ! to override)"
+                self.mode = Mode.NORMAL
+                return
+            if len(self.buffers) <= 1:
+                self.msg = "Cannot delete last buffer"
+                self.mode = Mode.NORMAL
+                return
+            self._save_buf_state()
+            self.buffers.pop(self.buf_idx)
+            if self.buf_idx >= len(self.buffers):
+                self.buf_idx = len(self.buffers) - 1
+            self._load_buf_state(self.buf_idx)
+            self._clamp_cursor()
+            self._ensure_scroll()
+            self.mode = Mode.NORMAL
+        elif cmd in ("k!", "bdelete!"):
+            if len(self.buffers) <= 1:
+                self.msg = "Cannot delete last buffer"
+                self.mode = Mode.NORMAL
+                return
+            self._save_buf_state()
+            self.buffers.pop(self.buf_idx)
+            if self.buf_idx >= len(self.buffers):
+                self.buf_idx = len(self.buffers) - 1
+            self._load_buf_state(self.buf_idx)
+            self._clamp_cursor()
+            self._ensure_scroll()
             self.mode = Mode.NORMAL
         elif cmd == "set":
             self._exec_set(arg)
@@ -1900,8 +2050,8 @@ class Editor:
 # ── Entry point ────────────────────────────────────────────────────────────
 
 def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else None
-    ed = Editor(path)
+    paths = sys.argv[1:] if len(sys.argv) > 1 else None
+    ed = Editor(paths)
     ed.run()
 
 if __name__ == "__main__":

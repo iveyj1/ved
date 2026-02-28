@@ -13,22 +13,28 @@ VED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ved.py")
 
 # ── Harness ────────────────────────────────────────────────────────────────
 
-def run_ved(keys, file_path=None, timeout=3.0, rows=24, cols=80):
+def run_ved(keys, file_path=None, file_paths=None, timeout=3.0, rows=24, cols=80):
     """
     Launch ved in a PTY, send `keys`, wait for exit or timeout.
     Returns (screen_output, file_contents_after, exit_code).
     
     keys: bytes to feed to stdin
-    file_path: path to open (if None, uses a temp file)
+    file_path: single path to open (if None, uses a temp file)
+    file_paths: list of paths to open (overrides file_path)
     """
     if isinstance(keys, str):
         keys = keys.encode()
 
     cleanup_file = False
-    if file_path is None:
+    if file_paths:
+        all_paths = file_paths
+    elif file_path is None:
         fd_tmp, file_path = tempfile.mkstemp(suffix=".txt")
         os.close(fd_tmp)
         cleanup_file = True
+        all_paths = [file_path]
+    else:
+        all_paths = [file_path]
 
     master, slave = pty.openpty()
 
@@ -48,7 +54,7 @@ def run_ved(keys, file_path=None, timeout=3.0, rows=24, cols=80):
         os.dup2(slave, 2)
         if slave > 2:
             os.close(slave)
-        os.execvp(sys.executable, [sys.executable, VED, file_path])
+        os.execvp(sys.executable, [sys.executable, VED] + all_paths)
         os._exit(1)
 
     # Parent
@@ -125,11 +131,11 @@ def run_ved(keys, file_path=None, timeout=3.0, rows=24, cols=80):
 
     # Read file contents
     file_contents = ""
-    if os.path.exists(file_path):
+    if file_path and os.path.exists(file_path):
         with open(file_path, "r") as f:
             file_contents = f.read()
 
-    if cleanup_file:
+    if cleanup_file and file_path:
         try:
             os.unlink(file_path)
         except OSError:
@@ -272,7 +278,7 @@ def test_edit_file():
     """:e opens a file."""
     path1 = write_temp("original\n")
     path2 = write_temp("other file\n")
-    screen, _, code = run_ved(f":e {path2}\r:q\r".encode(), file_path=path1)
+    screen, _, code = run_ved(f":e {path2}\r:q\r:q\r".encode(), file_path=path1)
     os.unlink(path1)
     os.unlink(path2)
     assert code == 0
@@ -281,7 +287,7 @@ def test_edit_file():
 def test_new_buffer():
     """:new creates empty buffer."""
     path = write_temp("stuff\n")
-    screen, _, code = run_ved(b":new\r:q\r", file_path=path)
+    screen, _, code = run_ved(b":new\r:q\r:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     print("  PASS: :new")
@@ -1563,6 +1569,129 @@ def test_bang_command():
     assert "hello_bang" in screen, f":! failed: {screen[-500:]}"
     print("  PASS: :! shell command")
 
+# ── Phase 28: Multi-buffer ─────────────────────────────────────────────────
+
+def test_multi_file_argv():
+    """Opening multiple files on command line creates multiple buffers."""
+    p1 = write_temp("file one\n")
+    p2 = write_temp("file two\n")
+    # Open with two files, check first visible, switch to second, quit all
+    screen, _, code = run_ved(b":n\r:qa\r", file_paths=[p1, p2])
+    os.unlink(p1)
+    os.unlink(p2)
+    assert code == 0
+    # Status bar should show [1/2] before :n, and [2/2] after
+    assert "[1/2]" in screen or "[2/2]" in screen, f"No buffer indicator: {screen[-500:]}"
+    print("  PASS: multi-file argv")
+
+def test_next_prev_buffer():
+    """:n and :p cycle through buffers."""
+    p1 = write_temp("alpha\n")
+    p2 = write_temp("beta\n")
+    p3 = write_temp("gamma\n")
+    # Open 3 files, :n twice to get to buffer 3, :p to go back to 2, then :qa
+    screen, _, code = run_ved(b":n\r:n\r:p\r:qa\r", file_paths=[p1, p2, p3])
+    os.unlink(p1)
+    os.unlink(p2)
+    os.unlink(p3)
+    assert code == 0
+    # Should have visited buffer [2/3] and [3/3]
+    assert "[2/3]" in screen or "[3/3]" in screen, f"Buffer switching failed: {screen[-500:]}"
+    print("  PASS: :n/:p buffer cycling")
+
+def test_ls_lists_buffers():
+    """:ls shows buffer list."""
+    p1 = write_temp("aaa\n")
+    p2 = write_temp("bbb\n")
+    # Open two files, :ls, then :qa
+    screen, _, code = run_ved(b":ls\r:qa\r", file_paths=[p1, p2])
+    os.unlink(p1)
+    os.unlink(p2)
+    assert code == 0
+    # :ls output should contain both file paths
+    assert os.path.basename(p1) in screen, f":ls missing file1: {screen[-500:]}"
+    assert os.path.basename(p2) in screen, f":ls missing file2: {screen[-500:]}"
+    print("  PASS: :ls lists buffers")
+
+def test_quit_closes_buffer():
+    """:q closes current buffer when multiple exist."""
+    p1 = write_temp("first\n")
+    p2 = write_temp("second\n")
+    # Open two files, :q closes first, then :q exits
+    screen, _, code = run_ved(b":q\r:q\r", file_paths=[p1, p2])
+    os.unlink(p1)
+    os.unlink(p2)
+    assert code == 0
+    print("  PASS: :q closes buffer")
+
+def test_e_adds_buffer():
+    """:e adds a new buffer instead of replacing."""
+    p1 = write_temp("original\n")
+    p2 = write_temp("added\n")
+    # Open p1, :e p2 adds it, now we need :q twice
+    screen, _, code = run_ved(f":e {p2}\r:q\r:q\r".encode(), file_path=p1)
+    os.unlink(p1)
+    os.unlink(p2)
+    assert code == 0
+    # Should see [2/2] after :e
+    assert "[2/2]" in screen, f"No [2/2] after :e: {screen[-500:]}"
+    print("  PASS: :e adds buffer")
+
+def test_bdelete_removes_buffer():
+    """:k deletes current buffer."""
+    p1 = write_temp("keep\n")
+    p2 = write_temp("remove\n")
+    # Open two files, :n to go to second, :k deletes it, :q exits
+    screen, _, code = run_ved(b":n\r:k\r:q\r", file_paths=[p1, p2])
+    os.unlink(p1)
+    os.unlink(p2)
+    assert code == 0
+    print("  PASS: :k deletes buffer")
+
+def test_bdelete_dirty_blocked():
+    """:k refuses to delete dirty buffer."""
+    p1 = write_temp("clean\n")
+    p2 = write_temp("dirty\n")
+    # Open two files, :n to second, make it dirty, try :k (should fail), :k! forces it
+    screen, _, code = run_ved(b":n\riX\x1b:k\r:k!\r:q\r", file_paths=[p1, p2])
+    os.unlink(p1)
+    os.unlink(p2)
+    assert code == 0
+    assert "No write since last change" in screen, f":k should warn about dirty: {screen[-500:]}"
+    print("  PASS: :k blocks on dirty buffer")
+
+def test_bdelete_last_refused():
+    """:k refuses to delete the last buffer."""
+    path = write_temp("only\n")
+    screen, _, code = run_ved(b":k\r:q\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "Cannot delete last buffer" in screen, f":k should refuse last: {screen[-500:]}"
+    print("  PASS: :k refuses last buffer")
+
+def test_qa_checks_all_dirty():
+    """:qa refuses if any buffer is dirty."""
+    p1 = write_temp("clean\n")
+    p2 = write_temp("dirty\n")
+    # Open two files, :n to second, make it dirty, :p back, :qa should fail
+    screen, _, code = run_ved(b":n\riX\x1b:p\r:qa\r:qa!\r", file_paths=[p1, p2])
+    os.unlink(p1)
+    os.unlink(p2)
+    assert code == 0
+    assert "unsaved changes" in screen, f":qa should warn: {screen[-500:]}"
+    print("  PASS: :qa checks all dirty")
+
+def test_wq_closes_buffer():
+    """:wq closes buffer when multiple exist, writes and exits when last."""
+    p1 = write_temp("one\n")
+    p2 = write_temp("two\n")
+    # Open two files, :wq writes and closes first, :q exits second
+    screen, _, code = run_ved(b":wq\r:q\r", file_paths=[p1, p2])
+    os.unlink(p1)
+    os.unlink(p2)
+    assert code == 0
+    print("  PASS: :wq closes buffer")
+
 # ── Runner ─────────────────────────────────────────────────────────────────
 
 def run_phase(name, tests):
@@ -1779,6 +1908,19 @@ def main():
         test_read_file,
         test_read_command,
         test_bang_command,
+    ])
+
+    total_failed += run_phase("Phase 28 — Multi-buffer", [
+        test_multi_file_argv,
+        test_next_prev_buffer,
+        test_ls_lists_buffers,
+        test_quit_closes_buffer,
+        test_e_adds_buffer,
+        test_bdelete_removes_buffer,
+        test_bdelete_dirty_blocked,
+        test_bdelete_last_refused,
+        test_qa_checks_all_dirty,
+        test_wq_closes_buffer,
     ])
 
     print(f"\n{'=' * 60}")
