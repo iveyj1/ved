@@ -108,6 +108,8 @@ class Terminal:
             return "ENTER"
         if ch == 9:
             return "TAB"
+        if ch == 18:  # Ctrl-R
+            return "CTRL_R"
         if ch < 32:
             return ""
         return chr(ch)
@@ -143,6 +145,12 @@ class Editor:
         self.opt_wrap = False  # :set wrap
         self.opt_number = False  # :set number
         self.opt_relnum = False  # :set relativenumber
+        self._undo_stack = []       # list of (lines[:], cx, cy)
+        self._redo_stack = []       # list of (lines[:], cx, cy)
+        self._undo_save_depth = 0   # len(undo_stack) at last save
+        self._undo_branched = False # True if save point was discarded
+        self._insert_word_count = 0 # WORD boundaries since last snapshot
+        self._insert_last_space = True  # for WORD boundary counting
         self.term = Terminal()
         self._update_size()
 
@@ -190,6 +198,58 @@ class Editor:
                 if screen_rows <= self.rows:
                     break
                 self.scroll += 1
+
+    # ── Undo / Redo ───────────────────────────────────────────────────
+
+    def _snapshot(self):
+        """Save current state for undo. Call before any mutation."""
+        current_depth = len(self._undo_stack)
+        self._undo_stack.append((self.buf.lines[:], self.cx, self.cy))
+        # If clearing redo discards the save point, mark branched
+        if self._redo_stack and self._undo_save_depth > current_depth:
+            self._undo_branched = True
+        self._redo_stack.clear()
+        # Limit stack size
+        while len(self._undo_stack) > 100:
+            self._undo_stack.pop(0)
+            self._undo_save_depth -= 1
+            if self._undo_save_depth < 0:
+                self._undo_branched = True
+
+    def _undo(self):
+        """Restore previous state from undo stack."""
+        if not self._undo_stack:
+            self.msg = "Already at oldest change"
+            return
+        self._redo_stack.append((self.buf.lines[:], self.cx, self.cy))
+        self.buf.lines, self.cx, self.cy = self._undo_stack.pop()
+        self._update_dirty()
+        self._clamp_cursor()
+        self._ensure_scroll()
+
+    def _redo(self):
+        """Restore next state from redo stack."""
+        if not self._redo_stack:
+            self.msg = "Already at newest change"
+            return
+        self._undo_stack.append((self.buf.lines[:], self.cx, self.cy))
+        self.buf.lines, self.cx, self.cy = self._redo_stack.pop()
+        self._update_dirty()
+        self._clamp_cursor()
+        self._ensure_scroll()
+
+    def _update_dirty(self):
+        """Recalculate dirty flag based on undo stack position."""
+        if self._undo_branched:
+            self.buf.dirty = True
+        else:
+            self.buf.dirty = len(self._undo_stack) != self._undo_save_depth
+
+    def _enter_insert(self):
+        """Enter insert mode, resetting word-count tracking."""
+        self._insert_word_count = 0
+        self._insert_last_space = True
+        self.mode = Mode.INSERT
 
     # ── Character classification for word motions ──────────────────────
 
@@ -684,7 +744,7 @@ class Editor:
             self.msg = f"{ty - sy + 1} lines yanked" if linewise else "yanked"
         elif op == "c":
             self._delete_range(sy, sx, ty, tx, linewise)
-            self.mode = Mode.INSERT
+            self._enter_insert()
 
     # ── Normal mode ────────────────────────────────────────────────────
 
@@ -706,12 +766,14 @@ class Editor:
             # Doubled operator = line-wise (dd, yy, cc)
             if key == op:
                 if op == "d":
+                    self._snapshot()
                     self._delete_lines(self.cy, op_n)
                 elif op == "y":
                     end = min(self.cy + op_n - 1, len(self.buf.lines) - 1)
                     self._yank_range(self.cy, 0, end, 0, linewise=True)
                     self.msg = f"{op_n} line(s) yanked"
                 elif op == "c":
+                    self._snapshot()
                     # cc: yank lines, clear to single empty line, insert
                     end = min(self.cy + op_n - 1, len(self.buf.lines) - 1)
                     text = "\n".join(self.buf.lines[self.cy:end + 1])
@@ -720,8 +782,10 @@ class Editor:
                     self.buf.lines[self.cy] = ""
                     self.cx = 0
                     self.buf.dirty = True
-                    self.mode = Mode.INSERT
+                    self._enter_insert()
             else:
+                if op in ("d", "c"):
+                    self._snapshot()
                 self._exec_operator(op, key, op_n * n)
             self._clamp_cursor()
             self._ensure_scroll()
@@ -746,6 +810,7 @@ class Editor:
         # Line-wise shortcuts
         elif key == "D":
             # Delete from cursor to end of line
+            self._snapshot()
             self._delete_to_eol()
         elif key == "Y":
             # Yank entire line (like yy)
@@ -754,28 +819,35 @@ class Editor:
             self.msg = f"{n} line(s) yanked"
         elif key == "C":
             # Change from cursor to end of line
+            self._snapshot()
             self._delete_to_eol()
-            self.mode = Mode.INSERT
+            self._enter_insert()
         # Paste
         elif key == "p":
+            self._snapshot()
             self._paste_after()
         elif key == "P":
+            self._snapshot()
             self._paste_before()
         elif key == ":":
             self.mode = Mode.COMMAND
             self.cmd = ""
         elif key == "i":
-            self.mode = Mode.INSERT
+            self._snapshot()
+            self._enter_insert()
         elif key == "a":
+            self._snapshot()
             self.cx += 1
-            self.mode = Mode.INSERT
+            self._enter_insert()
         elif key == "I":
+            self._snapshot()
             line = self.buf.lines[self.cy]
             self.cx = len(line) - len(line.lstrip())
-            self.mode = Mode.INSERT
+            self._enter_insert()
         elif key == "A":
+            self._snapshot()
             self.cx = len(self.buf.lines[self.cy])
-            self.mode = Mode.INSERT
+            self._enter_insert()
         elif key == "v":
             self.vx, self.vy = self.cx, self.cy
             self.mode = Mode.VISUAL
@@ -794,6 +866,10 @@ class Editor:
             self._search_next(self.search_dir)
         elif key == "N":
             self._search_next(-self.search_dir)
+        elif key == "u":
+            self._undo()
+        elif key == "CTRL_R":
+            self._redo()
         elif key == "ESC":
             self.pending_op = ""
         self._clamp_cursor()
@@ -863,6 +939,14 @@ class Editor:
         elif key in ("LEFT", "RIGHT", "UP", "DOWN"):
             self._exec_motion(key, 1)
         elif len(key) == 1:
+            # WORD boundary checkpoint: snapshot every 2 WORDs
+            is_space = key.isspace()
+            if not is_space and self._insert_last_space:
+                self._insert_word_count += 1
+                if self._insert_word_count >= 2:
+                    self._snapshot()
+                    self._insert_word_count = 0
+            self._insert_last_space = is_space
             line = self.buf.lines[self.cy]
             self.buf.lines[self.cy] = line[:self.cx] + key + line[self.cx:]
             self.cx += 1
@@ -928,6 +1012,8 @@ class Editor:
         elif cmd == "wq":
             path = arg or self.buf.path
             if self.buf.save(path):
+                self._undo_save_depth = len(self._undo_stack)
+                self._undo_branched = False
                 self.running = False
             else:
                 self.msg = "No file name"
@@ -947,6 +1033,10 @@ class Editor:
             self.cx = 0
             self.cy = 0
             self.scroll = 0
+            self._undo_stack.clear()
+            self._redo_stack.clear()
+            self._undo_save_depth = 0
+            self._undo_branched = False
             self.msg = "[New]"
             self.mode = Mode.NORMAL
         elif cmd == "set":
@@ -1017,6 +1107,7 @@ class Editor:
         global_flag = "g" in flags_str
         total_subs = 0
 
+        self._snapshot()
         for line_idx in range(start_line, end_line + 1):
             line = self.buf.lines[line_idx]
             if global_flag:
@@ -1031,6 +1122,7 @@ class Editor:
             self.buf.dirty = True
             self.msg = f"{total_subs} substitution(s)"
         else:
+            self._undo_stack.pop()  # remove no-op snapshot
             self.msg = "Pattern not found"
         self.mode = Mode.NORMAL
 
@@ -1042,14 +1134,16 @@ class Editor:
             return
         # Edit operations on selection
         if key in ("d", "x"):
+            self._snapshot()
             self._visual_delete()
             return
         if key == "y":
             self._visual_yank()
             return
         if key == "c":
+            self._snapshot()
             self._visual_delete()
-            self.mode = Mode.INSERT
+            self._enter_insert()
             return
         # Motions — same dispatch as normal mode
         self._exec_motion(key)

@@ -1014,6 +1014,127 @@ def test_insert_arrow_up_down():
     assert lines[2] == "Xccc", f"Expected 'Xccc' on line 3, got: {lines[2]!r}"
     print("  PASS: insert arrow up/down")
 
+# ── Phase 15: Undo / Redo ─────────────────────────────────────────────────
+
+def test_undo_insert():
+    """u undoes an insert session."""
+    path = write_temp("abc\n")
+    # Enter insert, type XY, Esc, then undo, then save
+    keys = b"iXY\x1bu:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content.strip() == "abc", f"Expected 'abc' after undo, got: {content!r}"
+    print("  PASS: undo insert")
+
+def test_undo_dd():
+    """u undoes dd (line delete)."""
+    path = write_temp("line1\nline2\nline3\n")
+    # dd deletes line1, u restores it, then save
+    keys = b"ddu:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    lines = content.strip().split("\n")
+    assert lines == ["line1", "line2", "line3"], f"Expected original, got: {lines}"
+    print("  PASS: undo dd")
+
+def test_redo_after_undo():
+    """Ctrl-R redoes after undo."""
+    path = write_temp("line1\nline2\nline3\n")
+    # dd deletes line1, u restores, Ctrl-R re-deletes, save
+    keys = b"ddu\x12:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    lines = content.strip().split("\n")
+    assert lines == ["line2", "line3"], f"Expected line1 deleted, got: {lines}"
+    print("  PASS: redo after undo")
+
+def test_undo_paste():
+    """u undoes a paste operation."""
+    path = write_temp("hello\nworld\n")
+    # yy yanks line, p pastes below, u undoes paste, save
+    keys = b"yypu:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    lines = content.strip().split("\n")
+    assert lines == ["hello", "world"], f"Expected original, got: {lines}"
+    print("  PASS: undo paste")
+
+def test_undo_substitute():
+    """u undoes a substitute command."""
+    path = write_temp("foo bar foo\n")
+    # :%s/foo/baz/g then u, save
+    keys = b":%s/foo/baz/g\ru:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content.strip() == "foo bar foo", f"Expected original, got: {content!r}"
+    print("  PASS: undo substitute")
+
+def test_undo_redo_dirty_flag():
+    """Dirty flag tracks correctly through undo/redo."""
+    path = write_temp("clean\n")
+    # Save (already clean), insert X Esc (dirty), u (clean again).
+    # :q should succeed (not dirty)
+    keys = b"iX\x1bu:q\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0, f"Expected clean exit (dirty flag cleared by undo), got code {code}"
+    print("  PASS: undo/redo dirty flag")
+
+def test_undo_insert_word_checkpoint():
+    """Long inserts create checkpoints every 2 WORDs; undo removes last chunk."""
+    path = write_temp("\n")
+    # Insert "aaa bbb ccc ddd " — 4 WORDs = 2 checkpoints.
+    # Esc, then u should undo the last 2 WORDs, u again undoes the first 2.
+    keys = b"iaaa bbb ccc ddd \x1bu:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    # After one undo: should have first 2 words + checkpoint content
+    stripped = content.strip()
+    assert "aaa" in stripped, f"Expected partial content after one undo, got: {content!r}"
+    assert "ddd" not in stripped, f"Expected 'ddd' removed by undo, got: {content!r}"
+    print("  PASS: undo insert word checkpoint")
+
+def test_undo_visual_delete():
+    """u undoes a visual mode delete."""
+    path = write_temp("abcdef\n")
+    # v + ll selects 'abc', d deletes, u restores, save
+    keys = b"vlld\x1bu:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    # After delete we're in NORMAL, ESC is harmless, u undoes
+    assert content.strip() == "abcdef", f"Expected original, got: {content!r}"
+    print("  PASS: undo visual delete")
+
+def test_redo_cleared_on_new_edit():
+    """Redo stack is cleared when a new edit is made after undo."""
+    path = write_temp("original\n")
+    # dd (delete line), u (undo), iNEW Esc (new edit), Ctrl-R should do nothing
+    # Save and check content = "NEWoriginal"
+    keys = b"dduiNEW\x1b\x12:wq\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "NEW" in content, f"Expected 'NEW' in content, got: {content!r}"
+    assert "original" in content, f"Expected 'original' in content, got: {content!r}"
+    print("  PASS: redo cleared on new edit")
+
+def test_undo_at_oldest():
+    """u at oldest change shows message, doesn't crash."""
+    path = write_temp("test\n")
+    # Just press u with no edits — should show message and not crash
+    keys = b"uu:q\r"
+    screen, content, code = run_ved(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    print("  PASS: undo at oldest")
+
 # ── Runner ─────────────────────────────────────────────────────────────────
 
 def run_phase(name, tests):
@@ -1147,6 +1268,19 @@ def main():
     total_failed += run_phase("Phase 14 — Insert Arrow Keys", [
         test_insert_arrow_left_right,
         test_insert_arrow_up_down,
+    ])
+
+    total_failed += run_phase("Phase 15 — Undo / Redo", [
+        test_undo_insert,
+        test_undo_dd,
+        test_redo_after_undo,
+        test_undo_paste,
+        test_undo_substitute,
+        test_undo_redo_dirty_flag,
+        test_undo_insert_word_checkpoint,
+        test_undo_visual_delete,
+        test_redo_cleared_on_new_edit,
+        test_undo_at_oldest,
     ])
 
     print(f"\n{'=' * 60}")

@@ -11,8 +11,8 @@ ved is a modal, vi-inspired terminal text editor written in Python. It uses raw 
 
 **Files**
 
-- `ved.py` — the entire editor (~1190 lines)
-- `test_ved.py` — PTY-based smoke tests (plain asserts, no framework, 72 tests)
+- `ved.py` — the entire editor (~1280 lines)
+- `test_ved.py` — PTY-based smoke tests (plain asserts, no framework, 82 tests)
 - `PLAN.md` — phased development plan with specifications
 - `AGENTS.md` — this document
 
@@ -40,7 +40,7 @@ In this chat, I'll provide requirements for numbered development phases.  When e
 - VISUAL / VISUAL LINE — selection with reverse video highlight
 - SEARCH — `/` or `?` prompt for pattern input, Enter executes
 
-**Normal mode commands** — `h j k l` (movement), `w W b B e E` (word motions), `i I a A` (enter insert), `v V` (enter visual), `:` (enter command), `/` `?` (search forward/backward), `n` `N` (repeat search same/opposite direction). All motions accept a count prefix (`3j`, `5w`, etc.). Operators `d y c` enter operator-pending mode and combine with a motion (`dw`, `cw`, `yj`). Doubled operators (`dd`, `yy`, `cc`) act linewise. Shortcuts `D Y C` operate from cursor to end-of-line (D/C) or yank the whole line (Y). `p` / `P` paste from the unnamed register after/before the cursor.
+**Normal mode commands** — `h j k l` (movement), `w W b B e E` (word motions), `i I a A` (enter insert), `v V` (enter visual), `:` (enter command), `/` `?` (search forward/backward), `n` `N` (repeat search same/opposite direction), `u` (undo), `Ctrl-R` (redo). All motions accept a count prefix (`3j`, `5w`, etc.). Operators `d y c` enter operator-pending mode and combine with a motion (`dw`, `cw`, `yj`). Doubled operators (`dd`, `yy`, `cc`) act linewise. Shortcuts `D Y C` operate from cursor to end-of-line (D/C) or yank the whole line (Y). `p` / `P` paste from the unnamed register after/before the cursor.
 
 **Command mode** — `:new`, `:e[dit] <path>`, `:w[rite] [path]`, `:q[uit]` (refuses if dirty), `:q!` (force), `:wq`, `:[range]s/pat/repl/[g]` (substitute), `:set <option>` (set wrap/nowrap/number/nonumber/relativenumber/norelativenumber).
 
@@ -57,7 +57,7 @@ ved is vi-inspired, not vi-compatible. These differences are intentional:
 
 **Cursor past end-of-line is allowed in all modes.** vi clamps the cursor to the last character in Normal mode. ved allows the cursor on the position after the last character in every mode. This simplifies the clamping logic and makes cursor behavior consistent regardless of mode.
 
-**Single unnamed register, no undo, no macros.** ved has one unnamed register that holds the last deleted or yanked text. Every yank/delete also copies to the system clipboard via OSC 52. There are no named registers, no undo tree, and no macros. If you need undo, use version control.
+**Single unnamed register, no macros.** ved has one unnamed register that holds the last deleted or yanked text. Every yank/delete also copies to the system clipboard via OSC 52. There are no named registers and no macros.
 
 **Minimal ex commands.** vi has dozens of ex commands. ved supports only: new, edit, write, quit, wq, set, substitute. Abbreviations (`:e`, `:w`, `:q`) work. That's it.
 
@@ -89,6 +89,15 @@ ved is vi-inspired, not vi-compatible. These differences are intentional:
 **Search** — `/` and `?` enter SEARCH mode, which captures a regex pattern in the command bar. On Enter, `_search_next(direction)` compiles the pattern with `re.compile` and iterates through buffer lines from the position after the cursor (wrapping around). Forward search uses `re.search`; backward search uses `re.finditer` to find the last match before the cursor. `n` repeats in the same direction; `N` reverses. The last pattern is stored in `search_pattern` and reused when Enter is pressed with an empty prompt.
 
 **Substitute** — `_exec_command` detects `:[range]s/pat/repl/[g]` via a regex match before the generic command parser. The delimiter must be a non-alphanumeric, non-whitespace character (this prevents `:set number` from being misinterpreted as a substitute command). `_exec_substitute` parses the range (current line, `%` for whole file, or `N,M` line numbers), compiles the pattern, and runs `re.subn` on each line in range. The `g` flag controls whether all matches or just the first are replaced. The delimiter is captured dynamically (any punctuation after `s`), so `s|pat|repl|` also works.
+
+**Undo / Redo** — full-buffer snapshots stored on two stacks (`_undo_stack` and `_redo_stack`). Each snapshot is a tuple of `(lines[:], cx, cy)`. `_snapshot()` pushes to the undo stack and clears the redo stack. `_undo()` pops from undo, pushes current state to redo. `_redo()` does the reverse. Stack is capped at 100 entries.
+
+**Snapshot placement** — snapshots are taken at two granularities:
+
+- Atomic: before any destructive Normal/Visual mode operation (`dd`, `d{motion}`, `D`, `C`, `cc`, `c{motion}`, `p`, `P`, visual `d`/`x`/`c`, substitute). Also before entering Insert mode from `i`/`a`/`I`/`A`.
+- Periodic during Insert: every 2 WORD boundaries (space→non-space transitions) typed from the keyboard. This breaks long insert sessions into undoable chunks of ~2 words each.
+
+**Dirty flag with undo** — `_undo_save_depth` records `len(_undo_stack)` at the last save. `_undo_branched` is set `True` when clearing the redo stack would discard the save point (i.e., the user undid past the save, then made a new edit). `_update_dirty()` sets `buf.dirty = (len(_undo_stack) != _undo_save_depth) or _undo_branched`. On save, `_undo_save_depth` is updated and `_undo_branched` is cleared. On `:e`/`:new`, both stacks are cleared and save depth reset.
 
 **Word motions** — characters are classified as word (`[a-zA-Z0-9_]`), punctuation, or space. Small word motions (`w b e`) treat punctuation runs as separate words. Big WORD motions (`W B E`) only split on whitespace. The algorithm uses `_forward`/`_backward` helpers to step through the buffer one character at a time, crossing line boundaries.
 
@@ -124,7 +133,7 @@ ved is vi-inspired, not vi-compatible. These differences are intentional:
 
 **Assertions** — tests check exit code, file contents after `:wq`, and screen output for markers like reverse video escapes, filenames, or tilde rows. Screen output is decoded as UTF-8 with replacement.
 
-**Coverage** — 72 tests across 14 phases: scaffold (5), editing (10), word motions (6), visual mode (4), polish (4), resize (2), count prefixes (3), edit operations (11), visual edit (5), search (6), replace (6), line wrap (4), line numbers (4), insert arrow keys (2). Run with `python3 test_ved.py`.
+**Coverage** — 82 tests across 15 phases: scaffold (5), editing (10), word motions (6), visual mode (4), polish (4), resize (2), count prefixes (3), edit operations (11), visual edit (5), search (6), replace (6), line wrap (4), line numbers (4), insert arrow keys (2), undo/redo (10). Run with `python3 test_ved.py`.
 
 
 ## Workflow for AI Agents
