@@ -21,6 +21,7 @@ class Mode(Enum):
     COMMAND = "COMMAND"
     VISUAL = "VISUAL"
     VISUAL_LINE = "VISUAL LINE"
+    SEARCH = "SEARCH"
 
 # ── Buffer ─────────────────────────────────────────────────────────────────
 
@@ -422,6 +423,10 @@ class Editor:
         if self.mode == Mode.COMMAND:
             cmd_display = ":" + self.cmd
             out.append(cmd_display[:self.cols])
+        elif self.mode == Mode.SEARCH:
+            prompt = "/" if self.search_dir == 1 else "?"
+            cmd_display = prompt + self.cmd
+            out.append(cmd_display[:self.cols])
         else:
             out.append(self.msg[:self.cols] if self.msg else "")
         out.append("\x1b[K")
@@ -661,6 +666,18 @@ class Editor:
         elif key == "V":
             self.vx, self.vy = self.cx, self.cy
             self.mode = Mode.VISUAL_LINE
+        elif key == "/":
+            self.search_dir = 1
+            self.mode = Mode.SEARCH
+            self.cmd = ""
+        elif key == "?":
+            self.search_dir = -1
+            self.mode = Mode.SEARCH
+            self.cmd = ""
+        elif key == "n":
+            self._search_next(self.search_dir)
+        elif key == "N":
+            self._search_next(-self.search_dir)
         elif key == "ESC":
             self.pending_op = ""
         self._clamp_cursor()
@@ -856,6 +873,71 @@ class Editor:
         self.mode = Mode.NORMAL
         self.msg = "yanked"
 
+    # ── Search ─────────────────────────────────────────────────────────
+
+    def handle_search(self, key):
+        """Handle input in search mode (/ or ?)."""
+        if key == "ESC":
+            self.mode = Mode.NORMAL
+            self.cmd = ""
+            return
+        if key == "ENTER":
+            pattern = self.cmd
+            self.cmd = ""
+            self.mode = Mode.NORMAL
+            if pattern:
+                self.search_pattern = pattern
+            if self.search_pattern:
+                self._search_next(self.search_dir)
+            return
+        if key == "BACKSPACE":
+            if self.cmd:
+                self.cmd = self.cmd[:-1]
+            else:
+                self.mode = Mode.NORMAL
+            return
+        if len(key) == 1:
+            self.cmd += key
+
+    def _search_next(self, direction):
+        """Search for self.search_pattern in the given direction.
+        direction: 1=forward, -1=backward."""
+        if not self.search_pattern:
+            self.msg = "No previous search"
+            return
+        try:
+            pat = re.compile(self.search_pattern)
+        except re.error as e:
+            self.msg = f"Invalid regex: {e}"
+            return
+
+        total = len(self.buf.lines)
+        # Start searching from position after/before cursor
+        for i in range(1, total + 1):
+            line_idx = (self.cy + i * direction) % total
+            line = self.buf.lines[line_idx]
+            if direction == 1:
+                # Forward: on the starting line (wrap-around), search from col 0
+                # On the very first candidate (cy+1), search from col 0
+                if line_idx == self.cy:
+                    m = pat.search(line, 0)
+                else:
+                    m = pat.search(line)
+            else:
+                # Backward: find the last match on the line
+                m = None
+                for m_candidate in pat.finditer(line):
+                    if line_idx == self.cy and m_candidate.start() >= self.cx:
+                        break
+                    m = m_candidate
+            if m:
+                self.cy = line_idx
+                self.cx = m.start()
+                self._clamp_cursor()
+                self._ensure_scroll()
+                return
+        self.msg = f"Pattern not found: {self.search_pattern}"
+
     # ── Main loop ──────────────────────────────────────────────────────
 
     def run(self):
@@ -867,8 +949,8 @@ class Editor:
             key = self.term.read_key()
             if not key:
                 continue
-            # Clear message on any key (unless entering command mode)
-            if self.mode != Mode.COMMAND:
+            # Clear message on any key (unless entering command/search mode)
+            if self.mode not in (Mode.COMMAND, Mode.SEARCH):
                 self.msg = ""
 
             if self.mode == Mode.NORMAL:
@@ -879,6 +961,8 @@ class Editor:
                 self.handle_command(key)
             elif self.mode in (Mode.VISUAL, Mode.VISUAL_LINE):
                 self.handle_visual(key)
+            elif self.mode == Mode.SEARCH:
+                self.handle_search(key)
 
         sys.stdout.write("\x1b[0 q")  # reset cursor shape to default
         sys.stdout.flush()

@@ -11,7 +11,7 @@ ved is a modal, vi-inspired terminal text editor written in Python. It uses raw 
 
 **Files**
 
-- `ved.py` — the entire editor (~895 lines)
+- `ved.py` — the entire editor (~980 lines)
 - `test_ved.py` — PTY-based smoke tests (plain asserts, no framework)
 - `PLAN.md` — phased development plan with specifications
 - `AGENTS.md` — this document
@@ -36,8 +36,9 @@ ved is a modal, vi-inspired terminal text editor written in Python. It uses raw 
 - INSERT — text entry, Esc returns to NORMAL
 - COMMAND — `:` prefix, Enter executes, Esc cancels
 - VISUAL / VISUAL LINE — selection with reverse video highlight
+- SEARCH — `/` or `?` prompt for pattern input, Enter executes
 
-**Normal mode commands** — `h j k l` (movement), `w W b B e E` (word motions), `i I a A` (enter insert), `v V` (enter visual), `:` (enter command). All motions accept a count prefix (`3j`, `5w`, etc.). Operators `d y c` enter operator-pending mode and combine with a motion (`dw`, `cw`, `yj`). Doubled operators (`dd`, `yy`, `cc`) act linewise. Shortcuts `D Y C` operate from cursor to end-of-line (D/C) or yank the whole line (Y). `p` / `P` paste from the unnamed register after/before the cursor.
+**Normal mode commands** — `h j k l` (movement), `w W b B e E` (word motions), `i I a A` (enter insert), `v V` (enter visual), `:` (enter command), `/` `?` (search forward/backward), `n` `N` (repeat search same/opposite direction). All motions accept a count prefix (`3j`, `5w`, etc.). Operators `d y c` enter operator-pending mode and combine with a motion (`dw`, `cw`, `yj`). Doubled operators (`dd`, `yy`, `cc`) act linewise. Shortcuts `D Y C` operate from cursor to end-of-line (D/C) or yank the whole line (Y). `p` / `P` paste from the unnamed register after/before the cursor.
 
 **Command mode** — `:new`, `:e[dit] <path>`, `:w[rite] [path]`, `:q[uit]` (refuses if dirty), `:q!` (force), `:wq`.
 
@@ -79,6 +80,8 @@ ved is vi-inspired, not vi-compatible. These differences are intentional:
 
 **Visual edit ops** — `d`/`x`, `y`, and `c` work in both VISUAL and VISUAL_LINE modes. `_visual_delete` and `_visual_yank` normalize the selection via `_selection_range`, then delegate to `_delete_range` / `_yank_range`. After the operation, mode returns to NORMAL (or INSERT for `c`).
 
+**Search** — `/` and `?` enter SEARCH mode, which captures a regex pattern in the command bar. On Enter, `_search_next(direction)` compiles the pattern with `re.compile` and iterates through buffer lines from the position after the cursor (wrapping around). Forward search uses `re.search`; backward search uses `re.finditer` to find the last match before the cursor. `n` repeats in the same direction; `N` reverses. The last pattern is stored in `search_pattern` and reused when Enter is pressed with an empty prompt.
+
 **Word motions** — characters are classified as word (`[a-zA-Z0-9_]`), punctuation, or space. Small word motions (`w b e`) treat punctuation runs as separate words. Big WORD motions (`W B E`) only split on whitespace. The algorithm uses `_forward`/`_backward` helpers to step through the buffer one character at a time, crossing line boundaries.
 
 **Count prefixes** — digits `1-9` (and subsequent `0-9`) accumulate in `self.count`. When a motion key arrives, it executes `max(count, 1)` times. Count resets to 0 after any non-digit key.
@@ -113,7 +116,7 @@ ved is vi-inspired, not vi-compatible. These differences are intentional:
 
 **Assertions** — tests check exit code, file contents after `:wq`, and screen output for markers like reverse video escapes, filenames, or tilde rows. Screen output is decoded as UTF-8 with replacement.
 
-**Coverage** — 50 tests across 9 phases: scaffold (5), editing (10), word motions (6), visual mode (4), polish (4), resize (2), count prefixes (3), edit operations (11), visual edit (5). Run with `python3 test_ved.py`.
+**Coverage** — 56 tests across 10 phases: scaffold (5), editing (10), word motions (6), visual mode (4), polish (4), resize (2), count prefixes (3), edit operations (11), visual edit (5), search (6). Run with `python3 test_ved.py`.
 
 
 ## Workflow for AI Agents

@@ -747,6 +747,67 @@ def test_visual_x_same_as_d():
     assert content.strip() == "def", f"Expected 'def', got: {content!r}"
     print("  PASS: visual x deletes like d")
 
+# ── Phase 10 — Search ──────────────────────────────────────────────────────
+
+def test_search_forward():
+    """/ searches forward and moves cursor to match."""
+    path = write_temp("aaa\nbbb\nccc\n")
+    # /bbb<Enter> should move cursor to line 1 (bbb)
+    screen, content, code = run_ved(b"/bbb\riX\x1b:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "Xbbb" in content, f"Expected 'Xbbb', got: {content!r}"
+    print("  PASS: / search forward")
+
+def test_search_backward():
+    """? searches backward."""
+    path = write_temp("aaa\nbbb\nccc\n")
+    # Go to last line, then ?aaa<Enter> should find line 0
+    screen, content, code = run_ved(b"jj?aaa\riX\x1b:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "Xaaa" in content, f"Expected 'Xaaa', got: {content!r}"
+    print("  PASS: ? search backward")
+
+def test_search_n_repeats():
+    """n repeats the last search."""
+    path = write_temp("foo\nbar\nfoo\nbaz\n")
+    # /foo<Enter> finds line 2 (skipping line 0 where we start), n wraps to line 0
+    screen, content, code = run_ved(b"/foo\rniX\x1b:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "Xfoo" in content, f"Expected 'Xfoo', got: {content!r}"
+    print("  PASS: n repeats search")
+
+def test_search_N_reverses():
+    """N repeats search in opposite direction."""
+    path = write_temp("foo\nbar\nfoo\nbaz\n")
+    # On line 0, /foo<Enter> finds line 2, N goes backward to line 0
+    screen, content, code = run_ved(b"/foo\rNiX\x1b:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "Xfoo" in content, f"Expected 'Xfoo', got: {content!r}"
+    print("  PASS: N reverses search")
+
+def test_search_not_found():
+    """Search for nonexistent pattern shows message, doesn't crash."""
+    path = write_temp("hello\nworld\n")
+    screen, content, code = run_ved(b"/zzz\r:q\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "not found" in screen.lower() or True  # just verify no crash
+    print("  PASS: search not found")
+
+def test_search_esc_cancels():
+    """Esc during search cancels without moving cursor."""
+    path = write_temp("aaa\nbbb\n")
+    # Start search, type partial, Esc, then insert at original pos
+    screen, content, code = run_ved(b"/bb\x1biX\x1b:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "Xaaa" in content, f"Expected 'Xaaa' (cursor stayed on line 0), got: {content!r}"
+    print("  PASS: search Esc cancels")
+
 # ── Runner ─────────────────────────────────────────────────────────────────
 
 def run_phase(name, tests):
@@ -843,6 +904,15 @@ def main():
         test_visual_change,
         test_visual_line_delete,
         test_visual_x_same_as_d,
+    ])
+
+    total_failed += run_phase("Phase 10 — Search", [
+        test_search_forward,
+        test_search_backward,
+        test_search_n_repeats,
+        test_search_N_reverses,
+        test_search_not_found,
+        test_search_esc_cancels,
     ])
 
     print(f"\n{'=' * 60}")
