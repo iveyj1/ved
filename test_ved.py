@@ -145,6 +145,13 @@ def run_ved(keys, file_path=None, file_paths=None, timeout=3.0, rows=24, cols=80
     return screen, file_contents, exit_code
 
 
+def last_frame(screen):
+    """Return the final rendered frame from captured terminal output."""
+    marker = "\x1b[?25l\x1b[H"
+    idx = screen.rfind(marker)
+    return screen[idx:] if idx >= 0 else screen
+
+
 def write_temp(content):
     """Write content to a temp file, return path."""
     fd, path = tempfile.mkstemp(suffix=".txt")
@@ -1889,6 +1896,30 @@ def test_ctrl_u_moves_half_page_up():
     assert "line29!" in out, f"Expected edit on line29 after Ctrl-U, got {out!r}"
     print("  PASS: Ctrl-U half-page up")
 
+# ── Phase 34: scrolloff support ────────────────────────────────────────────
+
+def test_set_scrolloff_option():
+    """:set scrolloff=N sets option and reports value."""
+    path = write_temp("a\n")
+    screen, _, code = run_ved(b":set scrolloff=3\r:q\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "scrolloff=3" in screen, "Expected scrolloff status message"
+    print("  PASS: set scrolloff option")
+
+def test_scrolloff_keeps_margin_near_bottom():
+    """scrolloff keeps vertical margin when cursor nears bottom."""
+    content = "\n".join(f"ROW{i:02d}" for i in range(1, 41)) + "\n"
+    path = write_temp(content)
+    # With rows=24 => content rows=22; at 21j with scrolloff=3 top should be ROW04
+    screen, _, code = run_ved(b":set scrolloff=3\r21j:q\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    frame = last_frame(screen)
+    assert "ROW04" in frame, "Expected scrolled top row with scrolloff margin"
+    assert "ROW01" not in frame, "Expected ROW01 scrolled out of final frame"
+    print("  PASS: scrolloff margin behavior")
+
 # ── Runner ─────────────────────────────────────────────────────────────────
 
 def run_phase(name, tests):
@@ -2121,6 +2152,10 @@ def main():
         ("33", "Phase 33 — Ctrl-D / Ctrl-U motions", [
             test_ctrl_d_moves_half_page_down,
             test_ctrl_u_moves_half_page_up,
+        ]),
+        ("34", "Phase 34 — scrolloff", [
+            test_set_scrolloff_option,
+            test_scrolloff_keeps_margin_near_bottom,
         ]),
     ]
 

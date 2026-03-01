@@ -179,6 +179,7 @@ class Editor:
         self.opt_wrap = False  # :set wrap
         self.opt_number = False  # :set number
         self.opt_relnum = False  # :set relativenumber
+        self.opt_scrolloff = 0  # :set scrolloff=N
         self._insert_word_count = 0 # WORD boundaries since last snapshot
         self._insert_last_space = True  # for WORD boundary counting
         self.last_find = None       # (cmd, ch) for f/t/F/T repeat
@@ -287,12 +288,22 @@ class Editor:
 
     def _ensure_scroll(self):
         """Adjust scroll so cursor is visible."""
-        if self.cy < self.scroll:
-            self.scroll = self.cy
         if not self.opt_wrap:
-            if self.cy >= self.scroll + self.rows:
-                self.scroll = self.cy - self.rows + 1
+            max_scroll = max(0, len(self.buf.lines) - self.rows)
+            margin = min(self.opt_scrolloff, max(0, (self.rows - 1) // 2))
+            min_cy = self.scroll + margin
+            max_cy = self.scroll + self.rows - 1 - margin
+            if self.cy < min_cy:
+                self.scroll = self.cy - margin
+            elif self.cy > max_cy:
+                self.scroll = self.cy - (self.rows - 1 - margin)
+            if self.scroll < 0:
+                self.scroll = 0
+            if self.scroll > max_scroll:
+                self.scroll = max_scroll
         else:
+            if self.cy < self.scroll:
+                self.scroll = self.cy
             # With wrap, count screen rows from scroll to cursor
             # If cursor line doesn't fit, scroll forward
             while True:
@@ -1908,6 +1919,16 @@ class Editor:
         elif opt.startswith("comment="):
             self.opt_comment = opt[8:]
             self.msg = f"comment={self.opt_comment}"
+        elif opt.startswith("scrolloff="):
+            try:
+                val = int(opt[len("scrolloff="):])
+                if val < 0:
+                    raise ValueError
+            except ValueError:
+                self.msg = "scrolloff must be >= 0"
+                return
+            self.opt_scrolloff = val
+            self.msg = f"scrolloff={val}"
         else:
             self.msg = f"Unknown option: {opt}"
 
