@@ -1812,6 +1812,60 @@ def test_visual_caret_delete_to_nonblank():
     assert content == "  \n", f"Expected leading spaces only, got {content!r}"
     print("  PASS: visual ^ motion")
 
+# ── Phase 32: Path handling for :e/:w and argv ────────────────────────────
+
+def test_edit_relative_to_current_buffer_dir():
+    """:e relative paths resolve from current buffer directory."""
+    tmp = tempfile.mkdtemp(prefix="ved_p32_")
+    main_path = os.path.join(tmp, "main.txt")
+    other_path = os.path.join(tmp, "other.txt")
+    with open(main_path, "w") as f:
+        f.write("main\n")
+    with open(other_path, "w") as f:
+        f.write("other\n")
+
+    keys = b":e other.txt\rA!\x1b:wq\r:q\r"
+    screen, _, code = run_ved(keys, file_path=main_path)
+    assert code == 0
+    with open(other_path, "r") as f:
+        content = f.read()
+    assert content == "other!\n", f"Expected relative :e target edited, got {content!r}"
+    os.unlink(main_path)
+    os.unlink(other_path)
+    os.rmdir(tmp)
+    print("  PASS: :e resolves relative to current buffer")
+
+def test_write_relative_to_current_buffer_dir():
+    """:w relative paths write under current buffer directory."""
+    tmp = tempfile.mkdtemp(prefix="ved_p32_")
+    main_path = os.path.join(tmp, "main.txt")
+    out_path = os.path.join(tmp, "out.txt")
+    with open(main_path, "w") as f:
+        f.write("abc\n")
+
+    screen, _, code = run_ved(b"iX\x1b:w out.txt\r:q\r", file_path=main_path)
+    assert code == 0
+    with open(out_path, "r") as f:
+        content = f.read()
+    assert content == "Xabc\n", f"Expected relative :w target content, got {content!r}"
+    os.unlink(main_path)
+    os.unlink(out_path)
+    os.rmdir(tmp)
+    print("  PASS: :w resolves relative to current buffer")
+
+def test_argv_expands_tilde_path():
+    """Command-line argv paths support ~ expansion."""
+    home = os.path.expanduser("~")
+    fd, abs_path = tempfile.mkstemp(prefix="ved_p32_", suffix=".txt", dir=home)
+    with os.fdopen(fd, "w") as f:
+        f.write("homefile\n")
+    tilde_path = "~/" + os.path.basename(abs_path)
+    screen, _, code = run_ved(b":q\r", file_paths=[tilde_path])
+    os.unlink(abs_path)
+    assert code == 0
+    assert "homefile" in screen, "Expected file opened from ~ path"
+    print("  PASS: argv expands ~ path")
+
 # ── Runner ─────────────────────────────────────────────────────────────────
 
 def run_phase(name, tests):
@@ -2035,6 +2089,11 @@ def main():
             test_count_J_joins_multiple_lines,
             test_visual_dollar_delete_line_tail,
             test_visual_caret_delete_to_nonblank,
+        ]),
+        ("32", "Phase 32 — :e/:w/argv path handling", [
+            test_edit_relative_to_current_buffer_dir,
+            test_write_relative_to_current_buffer_dir,
+            test_argv_expands_tilde_path,
         ]),
     ]
 

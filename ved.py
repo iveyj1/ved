@@ -142,7 +142,7 @@ class Editor:
     def __init__(self, paths=None):
         # Buffer list — always at least one buffer
         if paths:
-            self.buffers = [BufferState(p) for p in paths]
+            self.buffers = [BufferState(self._resolve_startup_path(p)) for p in paths]
         else:
             self.buffers = [BufferState()]
         self.buf_idx = 0
@@ -193,6 +193,20 @@ class Editor:
         self._pending_textobj = None  # 'i'/'a' waiting for object key
         self.term = Terminal()
         self._update_size()
+
+    @staticmethod
+    def _resolve_startup_path(path):
+        """Resolve command-line path with ~ and cwd semantics."""
+        return os.path.abspath(os.path.expanduser(path))
+
+    def _resolve_cmd_path(self, path):
+        """Resolve :e/:w paths relative to current buffer directory."""
+        p = os.path.expanduser(path.strip())
+        if os.path.isabs(p):
+            return os.path.normpath(p)
+        if self.buf.path:
+            return os.path.normpath(os.path.join(os.path.dirname(self.buf.path), p))
+        return os.path.abspath(p)
 
     def _update_size(self):
         sz = shutil.get_terminal_size()
@@ -1696,7 +1710,7 @@ class Editor:
                     return
             self.running = False
         elif cmd in ("w", "write"):
-            path = arg or self.buf.path
+            path = self._resolve_cmd_path(arg) if arg else self.buf.path
             if self.buf.save(path):
                 self._undo_save_depth = len(self._undo_stack)
                 self._undo_branched = False
@@ -1707,7 +1721,7 @@ class Editor:
                 self.msg = "No file name"
             self.mode = Mode.NORMAL
         elif cmd == "wq":
-            path = arg or self.buf.path
+            path = self._resolve_cmd_path(arg) if arg else self.buf.path
             if self.buf.save(path):
                 self._undo_save_depth = len(self._undo_stack)
                 self._undo_branched = False
@@ -1721,11 +1735,12 @@ class Editor:
         elif cmd in ("e", "edit"):
             if arg:
                 # Add new buffer and switch to it
+                path = self._resolve_cmd_path(arg)
                 self._save_buf_state()
-                new_bs = BufferState(arg)
+                new_bs = BufferState(path)
                 self.buffers.insert(self.buf_idx + 1, new_bs)
                 self._load_buf_state(self.buf_idx + 1)
-                self.msg = f'"{arg}"'
+                self.msg = f'"{path}"'
             else:
                 self.msg = "No file name"
             self.mode = Mode.NORMAL
