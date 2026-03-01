@@ -70,15 +70,24 @@ def run_ved(keys, file_path=None, file_paths=None, timeout=3.0, rows=24, cols=80
     i = 0
     while i < len(keys):
         try:
-            if keys[i] == 0x1B and i + 1 < len(keys) and keys[i + 1] == 0x5B:
-                # CSI sequence: \x1b[ + one or more bytes until a letter
-                end = i + 2
-                while end < len(keys) and not (0x40 <= keys[end] <= 0x7E):
-                    end += 1
-                if end < len(keys):
-                    end += 1  # include the final letter
-                os.write(master, keys[i:end])
-                i = end
+            if keys[i] == 0x1B and i + 1 < len(keys):
+                if keys[i + 1] == 0x5B:
+                    # CSI sequence: \x1b[ + one or more bytes until a letter
+                    end = i + 2
+                    while end < len(keys) and not (0x40 <= keys[end] <= 0x7E):
+                        end += 1
+                    if end < len(keys):
+                        end += 1  # include the final letter
+                    os.write(master, keys[i:end])
+                    i = end
+                    continue
+                if keys[i + 1] == 0x4F and i + 2 < len(keys):
+                    # SS3 sequence: \x1bO<code> (Home/End on some terminals)
+                    os.write(master, keys[i:i + 3])
+                    i += 3
+                    continue
+                os.write(master, bytes([keys[i]]))
+                i += 1
             else:
                 os.write(master, bytes([keys[i]]))
                 i += 1
@@ -1243,6 +1252,26 @@ def test_semicolon_repeats_find():
     assert content.startswith("abab@a"), f"; repeat failed: {content!r}"
     print("  PASS: ; repeats find")
 
+def test_semicolon_repeats_t_motion():
+    """Semicolon repeats last t/T find correctly."""
+    path = write_temp("axaxaxax\n")
+    # tx goes before first x (index 0), ; should go before second x (index 2)
+    screen, content, code = run_ved(b"tx;i@\x1b:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content.startswith("ax@ax"), f"; repeat for t failed: {content!r}"
+    print("  PASS: ; repeats t/T")
+
+def test_semicolon_repeats_T_motion():
+    """Semicolon also repeats backward till (T)."""
+    path = write_temp("xaxaxaxa\n")
+    # $ to EOL, Tx goes after x at 6 (cx=7), ; should go after x at 4 (cx=5)
+    screen, content, code = run_ved(b"$Tx;i@\x1b:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content.startswith("xaxax@ax"), f"; repeat for T failed: {content!r}"
+    print("  PASS: ; repeats T")
+
 def test_comma_reverses_find():
     """Comma reverses last f/t find."""
     path = write_temp("abababab\n")
@@ -1761,6 +1790,15 @@ def test_home_end_normal_mode():
     assert content == "^hello!\n", f"Expected '^hello!', got {content!r}"
     print("  PASS: Home/End in normal mode")
 
+def test_home_end_ss3_sequences():
+    """Home/End also work with SS3 escape sequences (ESC O H/F)."""
+    path = write_temp("hello\n")
+    screen, content, code = run_ved(b"\x1bOFi!\x1b\x1bOHi^\x1b:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content == "^hello!\n", f"Expected '^hello!' with SS3 Home/End, got {content!r}"
+    print("  PASS: Home/End SS3 sequences")
+
 def test_insert_home_end_tab():
     """Insert mode handles Home/End and Tab (4 spaces)."""
     path = write_temp("abc\n")
@@ -2067,6 +2105,8 @@ def main():
             test_t_motion,
             test_F_motion,
             test_semicolon_repeats_find,
+            test_semicolon_repeats_t_motion,
+            test_semicolon_repeats_T_motion,
             test_comma_reverses_find,
             test_dfl_deletes_to_char,
         ]),
@@ -2135,6 +2175,7 @@ def main():
         ("30", "Phase 30 — ^/$ Home/End Tab/Delete", [
             test_caret_motion_first_nonblank,
             test_home_end_normal_mode,
+            test_home_end_ss3_sequences,
             test_insert_home_end_tab,
             test_insert_delete_key,
         ]),

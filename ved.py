@@ -93,12 +93,14 @@ class Terminal:
             return ""
         ch = b[0]
         if ch == 0x1B:  # ESC
-            # Try to read escape sequence
-            seq = os.read(self.fd, 2) if self._has_data() else b""
-            if len(seq) == 0:
+            # Try to read escape sequence incrementally.
+            if not self._has_data():
                 return "ESC"
-            if seq[0:1] == b"[":
-                code = seq[1:2]
+            first = os.read(self.fd, 1)
+            if first == b"[":
+                if not self._has_data():
+                    return "ESC"
+                code = os.read(self.fd, 1)
                 if code == b"A":
                     return "UP"
                 if code == b"B":
@@ -117,6 +119,15 @@ class Terminal:
                     if extra == b"~":
                         if code == b"3":
                             return "DEL"
+                return "ESC"
+            if first == b"O":
+                if not self._has_data():
+                    return "ESC"
+                code = os.read(self.fd, 1)
+                if code == b"H":
+                    return "HOME"
+                if code == b"F":
+                    return "END"
                 return "ESC"
             return "ESC"
         if ch == 127 or ch == 8:
@@ -719,6 +730,9 @@ class Editor:
         cmd, ch = self.last_find
         if reverse:
             cmd = self._FIND_REVERSE[cmd]
+        elif cmd in ("t", "T"):
+            # For till motions, skip the previously matched char on repeat.
+            n += 1
         getattr(self, self._FIND_DISPATCH[cmd])(ch, n)
 
     # ── Match bracket (%) ────────────────────────────────────────────
