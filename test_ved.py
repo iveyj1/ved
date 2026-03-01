@@ -1982,6 +1982,36 @@ def test_scrolloff_keeps_margin_near_bottom():
     assert "ROW01" not in frame, "Expected ROW01 scrolled out of final frame"
     print("  PASS: scrolloff margin behavior")
 
+# ── Phase 35: clipboard modes ───────────────────────────────────────────────
+
+def test_set_clipboard_mode_options():
+    """:set clipboard=<mode> accepts osc52/auto/off."""
+    path = write_temp("a\n")
+    screen, _, code = run_ved(b":set clipboard=auto\r:set clipboard=off\r:q\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "clipboard=auto" in screen, "Expected clipboard=auto message"
+    assert "clipboard=off" in screen, "Expected clipboard=off message"
+    print("  PASS: set clipboard modes")
+
+def test_set_clipboard_invalid_value():
+    """:set clipboard rejects invalid values."""
+    path = write_temp("a\n")
+    screen, _, code = run_ved(b":set clipboard=bad\r:q\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "clipboard must be osc52, auto, or off" in screen
+    print("  PASS: clipboard invalid value")
+
+def test_clipboard_off_disables_osc52_output():
+    """clipboard=off avoids emitting OSC 52 copy sequence on yank."""
+    path = write_temp("abc\n")
+    screen, _, code = run_ved(b":set clipboard=off\ryy:q!\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "\x1b]52;c;" not in screen, "OSC52 should not be emitted when clipboard=off"
+    print("  PASS: clipboard off disables OSC52")
+
 # ── Runner ─────────────────────────────────────────────────────────────────
 
 def run_phase(name, tests):
@@ -2223,6 +2253,11 @@ def main():
         ("34", "Phase 34 — scrolloff", [
             test_set_scrolloff_option,
             test_scrolloff_keeps_margin_near_bottom,
+        ]),
+        ("35", "Phase 35 — clipboard modes", [
+            test_set_clipboard_mode_options,
+            test_set_clipboard_invalid_value,
+            test_clipboard_off_disables_osc52_output,
         ]),
     ]
 

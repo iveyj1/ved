@@ -195,6 +195,7 @@ class Editor:
         self.opt_number = False  # :set number
         self.opt_relnum = False  # :set relativenumber
         self.opt_scrolloff = 0  # :set scrolloff=N
+        self.opt_clipboard = "auto"  # :set clipboard=osc52|auto|off
         self._insert_word_count = 0 # WORD boundaries since last snapshot
         self._insert_last_space = True  # for WORD boundary counting
         self.last_find = None       # (cmd, ch) for f/t/F/T repeat
@@ -1142,11 +1143,55 @@ class Editor:
         sys.stdout.write(f"\x1b]52;c;{encoded}\x07")
         sys.stdout.flush()
 
+    def _external_clipboard_cmd(self):
+        """Return first available external clipboard command or None."""
+        if shutil.which("pbcopy"):
+            return ["pbcopy"]
+        if shutil.which("wl-copy"):
+            return ["wl-copy"]
+        if shutil.which("xclip"):
+            return ["xclip", "-selection", "clipboard"]
+        if shutil.which("xsel"):
+            return ["xsel", "--clipboard", "--input"]
+        if shutil.which("clip.exe"):
+            return ["clip.exe"]
+        return None
+
+    def _external_copy(self, text):
+        """Try copying via external clipboard command. Returns bool success."""
+        cmd = self._external_clipboard_cmd()
+        if not cmd:
+            return False
+        try:
+            import subprocess
+            subprocess.run(cmd, input=text, text=True, check=False, timeout=1)
+            return True
+        except Exception:
+            return False
+
+    def _copy_to_system_clipboard(self, text):
+        """Copy using configured clipboard mode. Never raises."""
+        mode = self.opt_clipboard
+        if mode == "off":
+            return
+        if mode == "osc52":
+            try:
+                self._osc52_copy(text)
+            except Exception:
+                pass
+            return
+        if mode == "auto":
+            try:
+                self._osc52_copy(text)
+            except Exception:
+                pass
+            self._external_copy(text)
+
     def _set_register(self, text, linewise=False):
         """Store text in unnamed register and copy to system clipboard."""
         self.register = text
         self.reg_linewise = linewise
-        self._osc52_copy(text)
+        self._copy_to_system_clipboard(text)
 
     # ── Operator-pending motion execution ──────────────────────────────
 
@@ -1962,6 +2007,13 @@ class Editor:
                 return
             self.opt_scrolloff = val
             self.msg = f"scrolloff={val}"
+        elif opt.startswith("clipboard="):
+            val = opt[len("clipboard="):]
+            if val not in ("osc52", "auto", "off"):
+                self.msg = "clipboard must be osc52, auto, or off"
+                return
+            self.opt_clipboard = val
+            self.msg = f"clipboard={val}"
         else:
             self.msg = f"Unknown option: {opt}"
 

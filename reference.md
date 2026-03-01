@@ -92,6 +92,7 @@
 | `:set autoindent` / `noautoindent` | toggle autoindent |
 | `:set comment=<str>` | set comment prefix (default `#`) |
 | `:set scrolloff=<N>` | keep N-line vertical margin around cursor |
+| `:set clipboard=osc52|auto|off` | clipboard copy mode (default `auto`) |
 
 Path semantics: `:e`/`:w` expand `~`; relative paths resolve from current buffer directory.
 

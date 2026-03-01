@@ -12,7 +12,7 @@ ved is a modal, vi-inspired terminal text editor written in Python. It uses raw 
 **Files**
 
 - `ved.py` — the entire editor (~2060 lines)
-- `test_ved.py` — PTY-based smoke tests (plain asserts, no framework, 146 tests)
+- `test_ved.py` — PTY-based smoke tests (plain asserts, no framework, 149 tests)
 - `PLAN.md` — phased development plan with specifications
 - `AGENTS.md` — this document
 
@@ -42,7 +42,7 @@ In this chat, I'll provide requirements for numbered development phases.  When e
 
 **Normal mode commands** — `h j k l` (movement), `w W b B e E` (word motions), `gg` / `G` (go to first/last line, or line N with count), `0` (column 0), `^` (first non-blank), `$` (end of line), `Home` / `End` (start/end of line), `Ctrl-D` / `Ctrl-U` (half-page down/up), `f t F T` (find char on line), `;` `,` (repeat/reverse find), `%` (match bracket), `i I a A` (enter insert), `o` / `O` (open line below/above), `v V` (enter visual), `:` (enter command), `/` `?` (search forward/backward), `n` `N` (repeat search same/opposite direction), `u` (undo), `Ctrl-R` (redo), `.` (dot repeat last change), `x` (delete char under cursor), `X` (delete char before cursor), `J` (join with next line), `<space>` (leader key for shortcuts: `<space>k` deletes buffer). All motions accept a count prefix (`3j`, `5w`, `3G`, etc.). Operators `d y c` enter operator-pending mode and combine with a motion (`dw`, `cw`, `yj`). Operators also combine with text objects (`diw`, `ci(`, `da"`, etc.). Doubled operators (`dd`, `yy`, `cc`) act linewise. `>>` / `<<` indent/dedent lines by 4 spaces. `gcc` toggles line comment. Shortcuts `D Y C` operate from cursor to end-of-line (D/C) or yank the whole line (Y). `p` / `P` paste from the unnamed register after/before the cursor.
 
-**Command mode** — `:new`, `:e[dit] <path>` (adds a new buffer), `:w[rite] [path]`, `:q[uit]` (closes buffer if >1, else quits; refuses if dirty), `:q!` (force), `:wq` (write and close buffer/quit), `:qa` / `:qall` / `:qa!` / `:qall!` (quit all buffers), `:n` / `:next` / `:bn` (next buffer), `:p` / `:prev` / `:bp` (prev buffer), `:ls` (list buffers), `:k` / `:bdelete` (delete buffer, blocks if dirty), `:k!` / `:bdelete!` (force delete buffer), `:[range]s/pat/repl/[g]` (substitute), `:set <option>` (set wrap/nowrap/number/nonumber/relativenumber/norelativenumber/autoindent/noautoindent/comment=X/scrolloff=N), `:read <file>` (insert file below cursor), `:read !<cmd>` (insert command output below cursor), `:! <cmd>` (run shell command and show output). Path arguments for `:e`/`:w` expand `~`; relative paths resolve from the current buffer's directory.
+**Command mode** — `:new`, `:e[dit] <path>` (adds a new buffer), `:w[rite] [path]`, `:q[uit]` (closes buffer if >1, else quits; refuses if dirty), `:q!` (force), `:wq` (write and close buffer/quit), `:qa` / `:qall` / `:qa!` / `:qall!` (quit all buffers), `:n` / `:next` / `:bn` (next buffer), `:p` / `:prev` / `:bp` (prev buffer), `:ls` (list buffers), `:k` / `:bdelete` (delete buffer, blocks if dirty), `:k!` / `:bdelete!` (force delete buffer), `:[range]s/pat/repl/[g]` (substitute), `:set <option>` (set wrap/nowrap/number/nonumber/relativenumber/norelativenumber/autoindent/noautoindent/comment=X/scrolloff=N/clipboard=osc52|auto|off), `:read <file>` (insert file below cursor), `:read !<cmd>` (insert command output below cursor), `:! <cmd>` (run shell command and show output). Path arguments for `:e`/`:w` expand `~`; relative paths resolve from the current buffer's directory.
 
 **Insert mode** — printable characters insert at cursor. Tab inserts 4 spaces. Enter splits the line (with autoindent, copies leading whitespace). Backspace deletes backward or joins lines. Delete removes the character under cursor. Arrow keys and Home/End move the cursor via `_exec_motion`, same as in Normal mode. Esc returns to NORMAL without moving the cursor.
 
@@ -57,7 +57,7 @@ ved is vi-inspired, not vi-compatible. These differences are intentional:
 
 **Cursor past end-of-line is allowed in all modes.** vi clamps the cursor to the last character in Normal mode. ved allows the cursor on the position after the last character in every mode. This simplifies the clamping logic and makes cursor behavior consistent regardless of mode.
 
-**Single unnamed register, no macros.** ved has one unnamed register that holds the last deleted or yanked text. Every yank/delete also copies to the system clipboard via OSC 52. There are no named registers and no macros.
+**Single unnamed register, no macros.** ved has one unnamed register that holds the last deleted or yanked text. Clipboard copy mode is configurable via `:set clipboard=osc52|auto|off` (default `auto`). There are no named registers and no macros.
 
 **Minimal ex commands.** vi has dozens of ex commands. ved supports only: new, edit, write, quit, wq, qa, next, prev, ls, k/bdelete, set, substitute, read, and bang. Abbreviations (`:e`, `:w`, `:q`, `:r`, `:n`, `:p`, `:k`) work. That's it.
 
@@ -84,7 +84,7 @@ ved is vi-inspired, not vi-compatible. These differences are intentional:
 
 **Operator-pending** — typing `d`, `y`, or `c` in Normal mode sets `pending_op` and saves the current count in `pending_count`. The next key is treated as a motion. The operator then acts on the range from the original cursor to where the motion would land. Doubled operators (e.g., `dd`) are linewise. `_exec_operator` coordinates motion simulation (via `_apply_motion`), range normalization, and the delete/yank/change action. Text objects (`iw`, `aw`, `i(`, `a"`, etc.) are handled as a sub-state within operator-pending via `_pending_textobj`.
 
-**Register and clipboard** — `_set_register(text, linewise)` stores text in the unnamed register and writes it to the system clipboard via OSC 52 (`\x1b]52;c;<base64>\x07`). `_paste_after` / `_paste_before` insert register contents — linewise paste inserts whole lines above/below; charwise paste inserts inline. `reg_linewise` tracks whether the register holds lines or characters, which determines paste behavior.
+**Register and clipboard** — `_set_register(text, linewise)` stores text in the unnamed register and copies to system clipboard according to `opt_clipboard`: `osc52` (OSC 52), `auto` (OSC 52 then best-effort external command), or `off`. `_paste_after` / `_paste_before` insert register contents — linewise paste inserts whole lines above/below; charwise paste inserts inline. `reg_linewise` tracks whether the register holds lines or characters, which determines paste behavior.
 
 **Visual edit ops** — `d`/`x`, `y`, and `c` work in both VISUAL and VISUAL_LINE modes. `_visual_delete` and `_visual_yank` normalize the selection via `_selection_range`, then delegate to `_delete_range` / `_yank_range`. After the operation, mode returns to NORMAL (or INSERT for `c`).
 
@@ -153,7 +153,7 @@ ved is vi-inspired, not vi-compatible. These differences are intentional:
 
 **Assertions** — tests check exit code, file contents after `:wq`, and screen output for markers like reverse video escapes, filenames, or tilde rows. Screen output is decoded as UTF-8 with replacement.
 
-**Coverage** — 146 tests across 34 phases: scaffold (5), editing (10), word motions (6), visual mode (4), polish (4), resize (2), count prefixes (3), edit operations (11), visual edit (5), search (6), replace (6), line wrap (4), line numbers (4), insert arrow keys (2), undo/redo (10), gg/G/0 (5), f/t/F/T/;/, (8), indent (3), autoindent (2), % (2), o/O (3), word objects (3), bracket/quote objects (3), comment (4), dot repeat (3), read/bang (3), multi-buffer (10), x/X and space-leader (4), ^/$ Home/End Tab/Delete (6), J join and visual ^/$ (4), :e/:w/argv path handling (4), Ctrl-D/Ctrl-U motions (2), scrolloff (2). Run with `python3 test_ved.py`.
+**Coverage** — 149 tests across 35 phases: scaffold (5), editing (10), word motions (6), visual mode (4), polish (4), resize (2), count prefixes (3), edit operations (11), visual edit (5), search (6), replace (6), line wrap (4), line numbers (4), insert arrow keys (2), undo/redo (10), gg/G/0 (5), f/t/F/T/;/, (8), indent (3), autoindent (2), % (2), o/O (3), word objects (3), bracket/quote objects (3), comment (4), dot repeat (3), read/bang (3), multi-buffer (10), x/X and space-leader (4), ^/$ Home/End Tab/Delete (6), J join and visual ^/$ (4), :e/:w/argv path handling (4), Ctrl-D/Ctrl-U motions (2), scrolloff (2), clipboard modes (3). Run with `python3 test_ved.py`.
 
 
 ## Workflow for AI Agents
