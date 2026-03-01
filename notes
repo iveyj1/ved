@@ -1,0 +1,10 @@
+1) allow ^z backgrounding of app
+2) allow :!<command> with no space between ! and <command>
+3) native :pwd
+4) autosave
+5) tab complete for filenames in : and :! commands
+6) : command history
+7) filtering on partially typed command entry for : command history
+8) several added key bindings for existing commands/operations
+These will require more definition, but give the idea of future events.
+Review the project.  Evaluate AGENTS.md and the code in light of these planned changes.  Propose an AGENTS-new.md.  Determine if refactoring is in order prior to the main start of work.  If so, propose a phased plan to refactor

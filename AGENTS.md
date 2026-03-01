@@ -15,13 +15,14 @@ ved is a modal, vi-inspired terminal text editor written in Python. It uses raw 
 - `test_ved.py` — PTY-based smoke tests (plain asserts, no framework, 149 tests)
 - `PLAN.md` — phased development plan with specifications
 - `AGENTS.md` — this document
+- `reference.md` - list of functions
 
 ## Management
 In this chat, I'll provide requirements for numbered development phases.  When each phase is complete and functional, update AGENTS, commit the code, and move to the next phase.  Review the phases for guidance when they are provided and ask for any needed clarifications.  If a feature is asked for in the chat, add it to the requirements.
 
 ## General Guidance
 
-**Simplicity is the constraint, not a goal.** Every feature, every line of code must justify its existence. If something can be left out without losing editing capability specified in the requirements, leave it out.
+**Simplicity is the , not a goal.** Every feature, every line of code must justify its existence. If something can be left out without losing editing capability specified in the requirements, leave it out.
 
 **One file.** The editor lives entirely in `ved.py`. Classes and functions are organized by visual section markers (`# ── Section ──`) rather than by module. This keeps the call graph obvious, searchable, and greppable.
 
@@ -32,7 +33,7 @@ In this chat, I'll provide requirements for numbered development phases.  When e
 
 ## Requirements
 
-**Modes** — four modes form a simple state machine:
+**Modes**
 
 - NORMAL — navigation, mode switching, count prefixes
 - INSERT — text entry, Esc returns to NORMAL
