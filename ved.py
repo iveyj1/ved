@@ -125,6 +125,10 @@ class Terminal:
             return "ENTER"
         if ch == 9:
             return "TAB"
+        if ch == 4:  # Ctrl-D
+            return "CTRL_D"
+        if ch == 21:  # Ctrl-U
+            return "CTRL_U"
         if ch == 18:  # Ctrl-R
             return "CTRL_R"
         if ch < 32:
@@ -556,7 +560,7 @@ class Editor:
 
     _MOTION_KEYS = frozenset(
         "h l j k w W b B e E G 0 ^ $".split()
-        + ["LEFT", "RIGHT", "DOWN", "UP", "HOME", "END", "gg"]
+        + ["LEFT", "RIGHT", "DOWN", "UP", "HOME", "END", "gg", "CTRL_D", "CTRL_U"]
     )
 
     def _motion_h(self):
@@ -599,6 +603,14 @@ class Editor:
     def _motion_end(self):
         self.cx = len(self.buf.lines[self.cy])
 
+    def _motion_ctrl_d(self):
+        half = max(1, self.rows // 2)
+        self.cy = min(len(self.buf.lines) - 1, self.cy + half)
+
+    def _motion_ctrl_u(self):
+        half = max(1, self.rows // 2)
+        self.cy = max(0, self.cy - half)
+
     def _exec_motion(self, key, n=1, extra_n=None):
         """Execute a motion key n times. Returns True if key was a motion.
         extra_n is the raw count (None if no count given) for motions like G/gg."""
@@ -626,6 +638,8 @@ class Editor:
             "$": self._motion_dollar,
             "HOME": self._motion_home,
             "END": self._motion_end,
+            "CTRL_D": self._motion_ctrl_d,
+            "CTRL_U": self._motion_ctrl_u,
         }
         repeat = 1 if key in ("G", "gg", "0", "^", "$", "HOME", "END") else n
         for _ in range(repeat):
@@ -1124,7 +1138,7 @@ class Editor:
 
     def _is_linewise_motion(self, key):
         """j, k, G, gg, and doubled operators are linewise."""
-        return key in ("j", "k", "DOWN", "UP", "G", "gg")
+        return key in ("j", "k", "DOWN", "UP", "G", "gg", "CTRL_D", "CTRL_U")
 
     # ── Delete/Yank/Change helpers ─────────────────────────────────────
 

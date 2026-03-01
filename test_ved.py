@@ -1866,6 +1866,29 @@ def test_argv_expands_tilde_path():
     assert "homefile" in screen, "Expected file opened from ~ path"
     print("  PASS: argv expands ~ path")
 
+# ── Phase 33: Ctrl-D / Ctrl-U motions ──────────────────────────────────────
+
+def test_ctrl_d_moves_half_page_down():
+    """Ctrl-D moves cursor down by half a screen."""
+    content = "\n".join(f"line{i}" for i in range(1, 41)) + "\n"
+    path = write_temp(content)
+    screen, out, code = run_ved(b"\x04A!\x1b:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "line12!" in out, f"Expected edit on line12 after Ctrl-D, got {out!r}"
+    print("  PASS: Ctrl-D half-page down")
+
+def test_ctrl_u_moves_half_page_up():
+    """Ctrl-U moves cursor up by half a screen."""
+    content = "\n".join(f"line{i}" for i in range(1, 41)) + "\n"
+    path = write_temp(content)
+    # G to last line (40), Ctrl-U goes up 11 lines -> line29
+    screen, out, code = run_ved(b"G\x15A!\x1b:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "line29!" in out, f"Expected edit on line29 after Ctrl-U, got {out!r}"
+    print("  PASS: Ctrl-U half-page up")
+
 # ── Runner ─────────────────────────────────────────────────────────────────
 
 def run_phase(name, tests):
@@ -2094,6 +2117,10 @@ def main():
             test_edit_relative_to_current_buffer_dir,
             test_write_relative_to_current_buffer_dir,
             test_argv_expands_tilde_path,
+        ]),
+        ("33", "Phase 33 — Ctrl-D / Ctrl-U motions", [
+            test_ctrl_d_moves_half_page_down,
+            test_ctrl_u_moves_half_page_up,
         ]),
     ]
 
