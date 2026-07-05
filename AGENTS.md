@@ -127,7 +127,7 @@ ved is vi-inspired, not vi-compatible. These differences are intentional:
 
 ## Implementation Notes
 
-**Raw mode** — `tty.setraw()` disables canonical mode, echo, and signal generation. The original `termios` attributes are saved and restored via `atexit`. The SIGWINCH handler re-queries terminal size and triggers a redraw. Ctrl-Z restores terminal state, moves the terminal cursor to the bottom line, sends `SIGSTOP`, and re-enters raw mode when the process returns to the foreground. Ctrl-C cancels pending input/state and returns to Normal mode.
+**Raw mode** — `tty.setraw()` disables canonical mode, echo, and signal generation. The original `termios` attributes are saved and restored via `atexit`. The SIGWINCH handler re-queries terminal size and triggers a redraw. Ctrl-Z restores terminal state, moves the terminal cursor to the bottom line, sends `SIGTSTP` for normal job control, and re-enters raw mode when the process returns to the foreground. Ctrl-C cancels pending input/state and returns to Normal mode.
 
 **Key reading** — `os.read(fd, 1)` gets one byte. If it's `0x1B`, a `select` with 20ms timeout checks for follow-up bytes to decode arrow keys and other escape sequences. Bare Esc (no follow-up) returns `"ESC"`. This approach avoids blocking on ambiguous escape sequences.
 

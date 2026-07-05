@@ -87,7 +87,17 @@ class Terminal:
 
     def suspend_restore(self):
         """Restore terminal state before job-control suspension."""
-        termios.tcsetattr(self.fd, termios.TCSAFLUSH, self.old_attrs)
+        attrs = [x[:] if isinstance(x, list) else x for x in self.old_attrs]
+        attrs[0] |= termios.BRKINT | termios.ICRNL | termios.IXON
+        attrs[0] &= ~(termios.IGNBRK | termios.INLCR | termios.IGNCR)
+        attrs[1] |= termios.OPOST
+        if hasattr(termios, "ONLCR"):
+            attrs[1] |= termios.ONLCR
+        attrs[2] |= termios.CREAD
+        attrs[3] |= termios.ECHO | termios.ICANON | termios.ISIG | termios.IEXTEN
+        attrs[6][termios.VMIN] = 1
+        attrs[6][termios.VTIME] = 0
+        termios.tcsetattr(self.fd, termios.TCSAFLUSH, attrs)
         sys.stdout.write("\x1b[0 q\x1b[?25h")
         sys.stdout.flush()
 
@@ -288,9 +298,22 @@ class Editor:
     def _suspend(self):
         """Suspend ved with Ctrl-Z, then restore raw mode on foreground."""
         self.term.suspend_restore()
-        sys.stdout.write(f"\x1b[{self.rows + 2};1H")
+        sys.stdout.write(f"\x1b[{self.rows + 2};1H\x1b[K")
         sys.stdout.flush()
-        os.kill(os.getpid(), signal.SIGSTOP)
+        own_session = os.getsid(0)
+        try:
+            parent_session = os.getsid(os.getppid())
+        except OSError:
+            parent_session = None
+        if parent_session == own_session:
+            old_tstp = signal.getsignal(signal.SIGTSTP)
+            signal.signal(signal.SIGTSTP, signal.SIG_DFL)
+            os.kill(0, signal.SIGTSTP)
+            signal.signal(signal.SIGTSTP, old_tstp)
+        else:
+            # PTY tests often run ved as an orphaned process group, where
+            # SIGTSTP may be discarded. SIGSTOP keeps this path testable.
+            os.kill(os.getpid(), signal.SIGSTOP)
         self.term.enter_raw()
         self._update_size()
         self._clamp_cursor()
