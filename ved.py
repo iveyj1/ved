@@ -1177,10 +1177,10 @@ class Editor:
         cursor_screen_y = 0
         cursor_screen_x = self.cx + gw
         buf_line = self.scroll
+        window_hscroll = 0 if self.opt_wrap else max(0, self.cx - content_cols + 1)
 
         while screen_rows_used < self.rows and buf_line < len(self.buf.lines):
             line = self.buf.lines[buf_line]
-            hscroll = 0
             if buf_line == self.cy:
                 # Track cursor screen position
                 if self.opt_wrap and content_cols > 0:
@@ -1188,16 +1188,15 @@ class Editor:
                     cursor_screen_y = screen_rows_used + wrap_row
                     cursor_screen_x = self.cx % content_cols + gw
                 else:
-                    hscroll = max(0, self.cx - content_cols + 1)
                     cursor_screen_y = screen_rows_used
-                    cursor_screen_x = self.cx - hscroll + gw
+                    cursor_screen_x = self.cx - window_hscroll + gw
 
             rows_available = self.rows - screen_rows_used
             if self.opt_wrap:
                 used = self._render_line(line, buf_line, sel, out, gw, max_rows=rows_available)
                 screen_rows_used += used
             else:
-                self._render_line(line, buf_line, sel, out, gw, hscroll=hscroll)
+                self._render_line(line, buf_line, sel, out, gw, hscroll=window_hscroll)
                 screen_rows_used += 1
             buf_line += 1
 

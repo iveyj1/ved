@@ -2214,7 +2214,7 @@ def test_edit_directory_shows_error_no_crash():
     print("  PASS: :e directory error no crash")
 
 def test_insert_long_line_hscrolls_at_right_edge():
-    """In nowrap mode, the current long line scrolls left to keep cursor visible."""
+    """In nowrap mode, the window scrolls left to keep cursor visible."""
     path = write_temp("")
     screen, _, code = run_ved(b"iabcdefghijklmnopqrstuvwxyz\x1b:q!\r", file_path=path, cols=20)
     os.unlink(path)
@@ -2223,6 +2223,18 @@ def test_insert_long_line_hscrolls_at_right_edge():
     assert "hijklmnopqrstuvwxyz" in frame, f"Expected visible tail of long insert: {frame[-800:]}"
     assert "abcdefghijklmnopqrstuvwxyz" not in frame, "Long line should not remain left anchored"
     print("  PASS: insert long line hscrolls")
+
+def test_hscroll_shifts_whole_window():
+    """Horizontal scroll offset applies to all visible lines in nowrap mode."""
+    path = write_temp("ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n")
+    screen, _, code = run_ved(b"$j:q\r", file_path=path, cols=20)
+    os.unlink(path)
+    assert code == 0
+    frame = last_frame(screen)
+    assert "HIJKLMNOPQRSTUVWXYZ" in frame, f"Expected first line shifted with window: {frame[-800:]}"
+    assert "hijklmnopqrstuvwxyz" in frame, f"Expected cursor line shifted with window: {frame[-800:]}"
+    assert "ABCDEFGHIJKLMNOPQRSTUVWXYZ" not in frame, "First line should not remain left anchored"
+    print("  PASS: hscroll shifts whole window")
 
 # ── Runner ─────────────────────────────────────────────────────────────────
 
@@ -2490,6 +2502,7 @@ def main():
             test_ctrl_z_stops_process,
             test_edit_directory_shows_error_no_crash,
             test_insert_long_line_hscrolls_at_right_edge,
+            test_hscroll_shifts_whole_window,
         ]),
     ]
 
