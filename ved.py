@@ -85,6 +85,12 @@ class Terminal:
         sys.stdout.write("\x1b[?25h\x1b[2J\x1b[H")
         sys.stdout.flush()
 
+    def suspend_restore(self):
+        """Restore terminal state before job-control suspension."""
+        termios.tcsetattr(self.fd, termios.TCSAFLUSH, self.old_attrs)
+        sys.stdout.write("\x1b[0 q\x1b[?25h")
+        sys.stdout.flush()
+
     def read_key(self):
         """Read a single keypress. Decode escape sequences."""
         b = os.read(self.fd, 1)
@@ -145,6 +151,8 @@ class Terminal:
             return "CTRL_U"
         if ch == 18:  # Ctrl-R
             return "CTRL_R"
+        if ch == 26:  # Ctrl-Z
+            return "CTRL_Z"
         if ch < 32:
             return ""
         return chr(ch)
@@ -211,6 +219,7 @@ class Editor:
         self._pending_find = None   # 'f'/'t'/'F'/'T' waiting for char
         self._pending_find_for_op = None  # (cmd, ch) find for operator
         self._pending_textobj = None  # 'i'/'a' waiting for object key
+        self._pending_replace = 0    # count for normal-mode r{char}
         self.last_key = ""  # last decoded key read from terminal
         self.term = Terminal()
         self._update_size()
@@ -273,6 +282,16 @@ class Editor:
         sz = shutil.get_terminal_size()
         self.cols = sz.columns
         self.rows = sz.lines - 2  # reserve 2 lines: status + command
+
+    def _suspend(self):
+        """Suspend ved with Ctrl-Z, then restore raw mode on foreground."""
+        self.term.suspend_restore()
+        os.kill(os.getpid(), signal.SIGTSTP)
+        self.term.enter_raw()
+        self._update_size()
+        self._clamp_cursor()
+        self._ensure_scroll()
+        self.msg = ""
 
     def _handle_resize(self):
         """Called on SIGWINCH. Update size, re-clamp, and redraw."""
@@ -1285,6 +1304,8 @@ class Editor:
 
     def _delete_range(self, sy, sx, ey, ex, linewise=False):
         """Delete text from (sy,sx) to (ey,ex). Returns deleted text."""
+        if not linewise and (sy, sx) == (ey, ex):
+            return ""
         if linewise:
             # Delete entire lines sy..ey
             deleted = self.buf.lines[sy:ey + 1]
@@ -1366,6 +1387,9 @@ class Editor:
             if not linewise and ty < len(self.buf.lines):
                 tx = min(tx, len(self.buf.lines[ty]))
 
+        if not linewise and sy != ty and sx >= len(self.buf.lines[sy]) and motion_key in ("w", "W"):
+            ty, tx = sy, sx
+
         if op == "d":
             self._delete_range(sy, sx, ty, tx, linewise)
         elif op == "y":
@@ -1390,6 +1414,25 @@ class Editor:
         # Dot repeat recording — record keys (not count digits) while active
         if self._recording and not self._replaying_dot:
             self._recording_keys.append(key)
+
+        # r{char}: replace character(s) under cursor
+        if self._pending_replace:
+            repl_n = self._pending_replace
+            self._pending_replace = 0
+            if key == "ESC":
+                self._recording = False
+                self._recording_keys = []
+                return
+            if len(key) == 1 and self.cx < len(self.buf.lines[self.cy]):
+                self._snapshot()
+                line = self.buf.lines[self.cy]
+                end = min(self.cx + repl_n, len(line))
+                self.buf.lines[self.cy] = line[:self.cx] + key * (end - self.cx) + line[end:]
+                self.buf.dirty = True
+                self._save_dot()
+            self._clamp_cursor()
+            self._ensure_scroll()
+            return
 
         # Space leader: wait for next key
         if self._pending_space:
@@ -1623,13 +1666,25 @@ class Editor:
                 end = min(self.cx + n, len(line))
                 self._delete_range(self.cy, self.cx, self.cy, end)
             self._save_dot()
-        elif key == "X":
-            self._start_dot(n, "X")
+        elif key == "X" or key == "BACKSPACE":
+            self._start_dot(n, [key])
             self._snapshot()
             if self.cx > 0:
                 start = max(self.cx - n, 0)
                 self._delete_range(self.cy, start, self.cy, self.cx)
             self._save_dot()
+        elif key == "r":
+            self._start_dot(n, "r")
+            self._pending_replace = n
+            return
+        elif key == "s":
+            self._start_dot(n, "s")
+            self._snapshot()
+            line = self.buf.lines[self.cy]
+            if self.cx < len(line):
+                end = min(self.cx + n, len(line))
+                self._delete_range(self.cy, self.cx, self.cy, end)
+            self._enter_insert()
         elif key == "p":
             self._start_dot(n, "p")
             self._snapshot()
@@ -1834,6 +1889,11 @@ class Editor:
             self._exec_substitute(sub_match)
             return
 
+        if stripped.startswith("!") and stripped != "!":
+            self._exec_bang(stripped[1:].strip())
+            self.mode = Mode.NORMAL
+            return
+
         parts = stripped.split(None, 1)
         if not parts:
             self.mode = Mode.NORMAL
@@ -1963,22 +2023,30 @@ class Editor:
             self._exec_read(arg)
             self.mode = Mode.NORMAL
         elif cmd == "!":
-            if arg:
-                import subprocess
-                try:
-                    result = subprocess.run(
-                        arg, shell=True, capture_output=True, text=True, timeout=10
-                    )
-                    output = result.stdout + result.stderr
-                    self.msg = output.strip()[:200] if output.strip() else "(no output)"
-                except Exception as e:
-                    self.msg = str(e)
-            else:
-                self.msg = "No command given"
+            self._exec_bang(arg)
             self.mode = Mode.NORMAL
         else:
             self.msg = f"Not a command: {cmd}"
             self.mode = Mode.NORMAL
+
+    def _exec_bang(self, arg):
+        """Run a shell command and show compact output in the message bar."""
+        if arg:
+            import subprocess
+            try:
+                result = subprocess.run(
+                    arg, shell=True, capture_output=True, text=True, timeout=10
+                )
+                output = result.stdout + result.stderr
+                if output.strip():
+                    lines = output.replace("\r\n", "\n").replace("\r", "\n").splitlines()
+                    self.msg = " | ".join(line for line in lines if line)[:200]
+                else:
+                    self.msg = "(no output)"
+            except Exception as e:
+                self.msg = str(e)
+        else:
+            self.msg = "No command given"
 
     def _exec_read(self, arg):
         """Handle :read [file] and :read ![command]."""
@@ -2305,6 +2373,9 @@ class Editor:
                 if not key:
                     continue
                 self.last_key = key
+                if key == "CTRL_Z":
+                    self._suspend()
+                    continue
                 # Clear message on any key (unless entering command/search mode)
                 if self.mode not in (Mode.COMMAND, Mode.SEARCH):
                     self.msg = ""

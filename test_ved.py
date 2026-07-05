@@ -2094,6 +2094,62 @@ def test_clipboard_off_disables_osc52_output():
     assert "\x1b]52;c;" not in screen, "OSC52 should not be emitted when clipboard=off"
     print("  PASS: clipboard off disables OSC52")
 
+# ── Phase 36: small command/edit fixes ─────────────────────────────────────
+
+def test_bang_command_without_space():
+    """:!command works without a space after !."""
+    path = write_temp("test\n")
+    screen, _, code = run_ved(b":!echo nospace_bang\r:q\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "nospace_bang" in screen, f":!cmd failed: {screen[-500:]}"
+    print("  PASS: :!command without space")
+
+def test_bang_multiline_output_compact():
+    """:! multiline output is compacted onto the message bar."""
+    path = write_temp("test\n")
+    screen, _, code = run_ved(b":!printf 'aa\\nbb\\n'\r:q\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "aa | bb" in screen, f"Expected compact multiline output: {screen[-500:]}"
+    print("  PASS: :! multiline output compact")
+
+def test_normal_backspace_deletes_left():
+    """Normal-mode Backspace deletes char to the left of cursor."""
+    path = write_temp("abc\n")
+    screen, content, code = run_ved(b"$\x7f:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content == "ab\n", f"Backspace delete failed: {content!r}"
+    print("  PASS: normal Backspace deletes left")
+
+def test_r_replaces_character():
+    """Normal-mode r replaces character under cursor."""
+    path = write_temp("abc\n")
+    screen, content, code = run_ved(b"lrZ:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content == "aZc\n", f"r replace failed: {content!r}"
+    print("  PASS: r replaces character")
+
+def test_s_substitutes_character():
+    """Normal-mode s deletes char under cursor and enters insert."""
+    path = write_temp("abc\n")
+    screen, content, code = run_ved(b"lsXY\x1b:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content == "aXYc\n", f"s substitute failed: {content!r}"
+    print("  PASS: s substitutes character")
+
+def test_dw_at_eol_does_not_join_lines():
+    """dw from one-past-EOL does not merge the next line."""
+    path = write_temp("abc\ndef\n")
+    screen, content, code = run_ved(b"$dw:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content == "abc\ndef\n", f"dw at EOL joined lines: {content!r}"
+    print("  PASS: dw at EOL does not join lines")
+
 # ── Runner ─────────────────────────────────────────────────────────────────
 
 def run_phase(name, tests):
@@ -2349,6 +2405,14 @@ def main():
             test_set_clipboard_mode_options,
             test_set_clipboard_invalid_value,
             test_clipboard_off_disables_osc52_output,
+        ]),
+        ("36", "Phase 36 — small command/edit fixes", [
+            test_bang_command_without_space,
+            test_bang_multiline_output_compact,
+            test_normal_backspace_deletes_left,
+            test_r_replaces_character,
+            test_s_substitutes_character,
+            test_dw_at_eol_does_not_join_lines,
         ]),
     ]
 

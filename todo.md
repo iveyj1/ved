@@ -1,12 +1,12 @@
 ** Do
-1) :! ls produces output where next line starts at column where last ended, i.e. no carriage returns
-2) Add normal mode backspace that deletes char to left of cursor and moves cursor
-3) add normal mode r,s commands
-4) allow :!<command> with no space between ! and <command>
-5) allow ^z backgrounding of app
-6) fix dw at end of line (currently merges lines)
 
 ** Done
+1) :! ls produces compact message-bar output instead of raw newlines without carriage returns
+2) Add normal mode backspace that deletes char to left of cursor and moves cursor
+3) Add normal mode r,s commands
+4) Allow :!<command> with no space between ! and <command>
+5) Allow ^z backgrounding of app
+6) Fix dw at end of line so it does not merge lines
 
 
 ** Hold for further definition
