@@ -1,4 +1,6 @@
 ** Do
+1) add <ctrl>-c <ctrl>-c in normal mode as an alias for :qall and <ctrl>-c q as an alias for :qall!
+2) add config file with default settings (set number, set relativenumber, etc).  May be toml.  
 
 ** Done
 1) Fix Ctrl-Z suspension so ved actually stops and returns control to the shell
@@ -16,11 +18,9 @@
 
 
 ** Hold for further definition
-0.5) config file
-0.75) configurable keymaps
 1) Leverage shell utilities. e.g. support ripgrep better
 2) simple quickfix list
-3) configurable keymaps, settings (e.g. set number)
+3) configurable keymaps
 4) :g commands 
 6) simple syntax highlighting mechanism, C, Python, and Bash to start.  If too much added code, consider comment-and-string only.
 7) autosave
