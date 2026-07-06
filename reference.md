@@ -89,6 +89,7 @@ ved is a compact, single-file, vi-style terminal editor. Runtime code lives in `
 | `:p` / `:prev` / `:bp` | previous buffer |
 | `:ls` | list buffers |
 | `:k` / `:bdelete` | close buffer (`:k!` / `:bdelete!` to force) |
+| `:rg <pattern> [path]` | run `rg -n --column` into quickfix buffer |
 | `:read <file>` | insert file contents below cursor |
 | `:r !<cmd>` | insert command output below cursor |
 | `:! <cmd>` / `:!<cmd>` | run shell command and show one-line truncated output in message bar |
@@ -99,6 +100,7 @@ ved is a compact, single-file, vi-style terminal editor. Runtime code lives in `
 | `:set comment=<str>` | set comment prefix (default `#`) |
 | `:set scrolloff=<N>` | keep N-line vertical margin around cursor |
 | `:set clipboard=osc52|auto|off` | clipboard copy mode (current default `osc52`) |
+| `:set rghidden` / `norghidden` | add `-H` to `:rg` command when set |
 
 Path semantics: `:e`/`:w` expand `~`; relative paths resolve from current buffer directory.
 
@@ -109,6 +111,9 @@ Path semantics: `:e`/`:w` expand `~`; relative paths resolve from current buffer
 | `:p` `:bp` | previous buffer |
 | `:ls` | list all buffers |
 | `<space>k` | close current buffer |
+| `<space>n` / `<space>N` | next / previous buffer |
+| `<space>c` | switch to quickfix buffer, if any |
+| `<space>o` | open `file:line:column:` location under cursor |
 | Status bar `[N/M]` | shown when >1 buffer open |
 
 ## Insert Mode

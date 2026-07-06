@@ -2284,6 +2284,45 @@ def test_config_file_sets_options():
     assert "  1 alpha" in frame, f"Expected numbered line from config: {frame[-500:]}"
     print("  PASS: config file sets options")
 
+# ── Phase 38: ripgrep quickfix ─────────────────────────────────────────────
+
+def test_rg_creates_quickfix_buffer():
+    """:rg captures ripgrep output in a quickfix buffer."""
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "a.txt")
+        with open(path, "w") as f:
+            f.write("alpha needle beta\n")
+        screen, _, code = run_ved(f":rg needle {d}\r:q!\r:q\r", file_path=path, timeout=4.0)
+    assert code == 0
+    assert "[quickfix]" in screen, f"Expected quickfix buffer: {screen[-800:]}"
+    assert "a.txt:1:7:alpha needle beta" in screen, f"Expected rg result: {screen[-800:]}"
+    print("  PASS: :rg creates quickfix buffer")
+
+def test_space_o_opens_rg_location():
+    """<space>o opens file:line:column under cursor from quickfix."""
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "a.txt")
+        with open(path, "w") as f:
+            f.write("alpha needle beta\n")
+        screen, _, code = run_ved(f":rg needle {d}\r o\x03\x03", file_path=path, timeout=4.0)
+    assert code == 0
+    assert f"NORMAL | {path}" in screen, f"Expected original file active: {screen[-800:]}"
+    assert "1:7" in screen, f"Expected cursor at rg column: {screen[-800:]}"
+    print("  PASS: <space>o opens quickfix location")
+
+def test_space_buffer_keymaps_and_rghidden():
+    """Leader buffer keymaps work and rghidden option is accepted."""
+    p1 = write_temp("one\n")
+    p2 = write_temp("two\n")
+    screen, _, code = run_ved(b":set rghidden\r n N\x03\x03", file_paths=[p1, p2], timeout=4.0)
+    os.unlink(p1)
+    os.unlink(p2)
+    assert code == 0
+    assert "rghidden on" in screen, f"Expected rghidden message: {screen[-800:]}"
+    assert p2 in screen, f"Expected <space>n to switch to second buffer: {screen[-800:]}"
+    assert p1 in screen, f"Expected <space>N to switch back to first buffer: {screen[-800:]}"
+    print("  PASS: leader buffer keymaps and rghidden")
+
 # ── Runner ─────────────────────────────────────────────────────────────────
 
 def run_phase(name, tests):
@@ -2557,6 +2596,11 @@ def main():
             test_ctrl_c_q_force_quit_all,
             test_ctrl_c_ctrl_c_dirty_refuses,
             test_config_file_sets_options,
+        ]),
+        ("38", "Phase 38 — ripgrep quickfix", [
+            test_rg_creates_quickfix_buffer,
+            test_space_o_opens_rg_location,
+            test_space_buffer_keymaps_and_rghidden,
         ]),
     ]
 

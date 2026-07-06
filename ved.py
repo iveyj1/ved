@@ -10,6 +10,7 @@ import atexit
 import signal
 import shutil
 import select
+import shlex
 from enum import Enum
 
 # ── Modes ──────────────────────────────────────────────────────────────────
@@ -215,6 +216,7 @@ class Editor:
         self.opt_relnum = False  # :set relativenumber
         self.opt_scrolloff = 0  # :set scrolloff=N
         self.opt_clipboard = "osc52"  # :set clipboard=osc52|auto|off
+        self.opt_rghidden = False  # :set rghidden/norghidden
         self._insert_word_count = 0 # WORD boundaries since last snapshot
         self._insert_last_space = True  # for WORD boundary counting
         self.last_find = None       # (cmd, ch) for f/t/F/T repeat
@@ -233,6 +235,7 @@ class Editor:
         self._pending_textobj = None  # 'i'/'a' waiting for object key
         self._pending_replace = 0    # count for normal-mode r{char}
         self._pending_ctrl_c = False # Ctrl-C prefix for quit-all shortcuts
+        self.quickfix_state = None  # BufferState holding last :rg results
         self.last_key = ""  # last decoded key read from terminal
         self._load_config()
         self.term = Terminal()
@@ -403,13 +406,48 @@ class Editor:
     def _close_buffer(self):
         """Remove current buffer and load an adjacent one."""
         self._save_buf_state()
-        self.buffers.pop(self.buf_idx)
+        old = self.buffers.pop(self.buf_idx)
+        if old is self.quickfix_state:
+            self.quickfix_state = None
         if self.buf_idx >= len(self.buffers):
             self.buf_idx = len(self.buffers) - 1
         self._load_buf_state(self.buf_idx)
         self._clamp_cursor()
         self._ensure_scroll()
         self.mode = Mode.NORMAL
+
+    def _find_buffer_path(self, path):
+        """Return index of an open buffer for path, else None."""
+        target = os.path.abspath(path)
+        for i, bs in enumerate(self.buffers):
+            if bs.buf.path and os.path.abspath(bs.buf.path) == target:
+                return i
+        return None
+
+    def _goto_file_location(self, path, line=1, col=1):
+        """Open or switch to path, then move to 1-based line/column."""
+        path = os.path.abspath(os.path.expanduser(path))
+        if os.path.isdir(path):
+            self.msg = f'Cannot edit directory: "{path}"'
+            return False
+        idx = self._find_buffer_path(path)
+        if idx is None:
+            try:
+                bs = BufferState(path)
+            except OSError as e:
+                self.msg = f'Cannot edit "{path}": {e.strerror or str(e)}'
+                return False
+            self._save_buf_state()
+            self.buffers.insert(self.buf_idx + 1, bs)
+            self._load_buf_state(self.buf_idx + 1)
+        else:
+            self._switch_buffer(idx)
+        self.cy = max(0, line - 1)
+        self.cx = max(0, col - 1)
+        self._clamp_cursor()
+        self._ensure_scroll()
+        self.mode = Mode.NORMAL
+        return True
 
     def _quit_all(self, force=False):
         """Quit all buffers, respecting dirty buffers unless forced."""
@@ -1538,6 +1576,19 @@ class Editor:
                     self.msg = "Cannot delete last buffer"
                 else:
                     self._close_buffer()
+            elif key == "n":
+                if len(self.buffers) > 1:
+                    self._switch_buffer((self.buf_idx + 1) % len(self.buffers))
+            elif key == "N":
+                if len(self.buffers) > 1:
+                    self._switch_buffer((self.buf_idx - 1) % len(self.buffers))
+            elif key == "c":
+                if self.quickfix_state in self.buffers:
+                    self._switch_buffer(self.buffers.index(self.quickfix_state))
+                else:
+                    self.msg = "No quickfix buffer"
+            elif key == "o":
+                self._open_quickfix_location()
             return
 
         # 'g' prefix: wait for next key (gg, gc)
@@ -2112,6 +2163,9 @@ class Editor:
         elif cmd == "set":
             self._exec_set(arg)
             self.mode = Mode.NORMAL
+        elif cmd == "rg":
+            self._exec_rg(arg)
+            self.mode = Mode.NORMAL
         elif cmd == "read" or cmd == "r":
             self._exec_read(arg)
             self.mode = Mode.NORMAL
@@ -2121,6 +2175,77 @@ class Editor:
         else:
             self.msg = f"Not a command: {cmd}"
             self.mode = Mode.NORMAL
+
+    def _exec_rg(self, arg):
+        """Run ripgrep and capture results in the quickfix buffer."""
+        if not arg:
+            self.msg = "Usage: rg <pattern> [path]"
+            return
+        try:
+            parts = shlex.split(arg)
+        except ValueError as e:
+            self.msg = f"rg: {e}"
+            return
+        if not parts or len(parts) > 2:
+            self.msg = "Usage: rg <pattern> [path]"
+            return
+        pattern = parts[0]
+        path = self._resolve_cmd_path(parts[1]) if len(parts) == 2 else None
+        cmd = ["rg", "-n", "--column"]
+        if self.opt_rghidden:
+            cmd.append("-H")
+        cmd.append(pattern)
+        if path:
+            cmd.append(path)
+        import subprocess
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=10, cwd=os.getcwd()
+            )
+        except FileNotFoundError:
+            self.msg = "rg: command not found"
+            return
+        except Exception as e:
+            self.msg = f"rg: {e}"
+            return
+        output = result.stdout if result.returncode in (0, 1) else result.stdout + result.stderr
+        lines = output.splitlines()
+        if not lines:
+            lines = ["(no matches)"]
+        if self.quickfix_state in self.buffers:
+            bs = self.quickfix_state
+            bs.buf.lines = lines
+            bs.buf.dirty = False
+            bs.cx = bs.cy = bs.scroll = 0
+            self._switch_buffer(self.buffers.index(bs))
+            self.cx = self.cy = self.scroll = 0
+        else:
+            bs = BufferState()
+            bs.buf.path = "[quickfix]"
+            bs.buf.lines = lines
+            bs.buf.dirty = False
+            self.quickfix_state = bs
+            self._save_buf_state()
+            self.buffers.insert(self.buf_idx + 1, bs)
+            self._load_buf_state(self.buf_idx + 1)
+        self.msg = f"rg: {len(lines)} line(s)"
+        self._clamp_cursor()
+        self._ensure_scroll()
+
+    def _open_quickfix_location(self):
+        """Open the file:line:column location under the cursor, if present."""
+        line = self.buf.lines[self.cy]
+        m = re.match(r"^(.+?):(\d+):(\d+):", line)
+        if not m:
+            self.msg = "No quickfix location"
+            return
+        path = m.group(1)
+        if not path:
+            self.msg = "No quickfix location"
+            return
+        if not os.path.isabs(path):
+            path = os.path.abspath(path)
+        self._goto_file_location(path, int(m.group(2)), int(m.group(3)))
 
     def _exec_bang(self, arg):
         """Run a shell command and show compact output in the message bar."""
@@ -2242,6 +2367,12 @@ class Editor:
                 return
             self.opt_clipboard = val
             self.msg = f"clipboard={val}"
+        elif opt == "rghidden":
+            self.opt_rghidden = True
+            self.msg = "rghidden on"
+        elif opt == "norghidden":
+            self.opt_rghidden = False
+            self.msg = "rghidden off"
         else:
             self.msg = f"Unknown option: {opt}"
 
