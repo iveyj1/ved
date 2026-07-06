@@ -13,7 +13,7 @@ VED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ved.py")
 
 # ── Harness ────────────────────────────────────────────────────────────────
 
-def run_ved(keys, file_path=None, file_paths=None, timeout=3.0, rows=24, cols=80):
+def run_ved(keys, file_path=None, file_paths=None, timeout=3.0, rows=24, cols=80, env=None):
     """
     Launch ved in a PTY, send `keys`, wait for exit or timeout.
     Returns (screen_output, file_contents_after, exit_code).
@@ -21,6 +21,7 @@ def run_ved(keys, file_path=None, file_paths=None, timeout=3.0, rows=24, cols=80
     keys: bytes to feed to stdin
     file_path: single path to open (if None, uses a temp file)
     file_paths: list of paths to open (overrides file_path)
+    env: environment overrides for the child; config loading is disabled by default
     """
     if isinstance(keys, str):
         keys = keys.encode()
@@ -54,6 +55,10 @@ def run_ved(keys, file_path=None, file_paths=None, timeout=3.0, rows=24, cols=80
         os.dup2(slave, 2)
         if slave > 2:
             os.close(slave)
+        if env is None:
+            os.environ["VED_NO_CONFIG"] = "1"
+        else:
+            os.environ.update(env)
         os.execvp(sys.executable, [sys.executable, VED] + all_paths)
         os._exit(1)
 
@@ -2172,6 +2177,7 @@ def test_ctrl_z_stops_process():
         os.dup2(slave, 2)
         if slave > 2:
             os.close(slave)
+        os.environ["VED_NO_CONFIG"] = "1"
         os.execvp(sys.executable, [sys.executable, VED, path])
         os._exit(1)
     os.close(slave)
@@ -2235,6 +2241,48 @@ def test_hscroll_shifts_whole_window():
     assert "hijklmnopqrstuvwxyz" in frame, f"Expected cursor line shifted with window: {frame[-800:]}"
     assert "ABCDEFGHIJKLMNOPQRSTUVWXYZ" not in frame, "First line should not remain left anchored"
     print("  PASS: hscroll shifts whole window")
+
+# ── Phase 37: quit aliases and config ──────────────────────────────────────
+
+def test_ctrl_c_ctrl_c_quit_all():
+    """Ctrl-C Ctrl-C in Normal mode aliases :qall."""
+    path = write_temp("abc\n")
+    screen, _, code = run_ved(b"\x03\x03", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    print("  PASS: Ctrl-C Ctrl-C quits all")
+
+def test_ctrl_c_q_force_quit_all():
+    """Ctrl-C q in Normal mode aliases :qall!."""
+    path = write_temp("abc\n")
+    screen, content, code = run_ved(b"ix\x1b\x03q", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content == "abc\n", f"Force quit should not write dirty buffer: {content!r}"
+    print("  PASS: Ctrl-C q force quits all")
+
+def test_ctrl_c_ctrl_c_dirty_refuses():
+    """Ctrl-C Ctrl-C refuses dirty buffers like :qall."""
+    path = write_temp("abc\n")
+    screen, _, code = run_ved(b"ix\x1b\x03\x03:q!\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "unsaved changes" in screen, f"Expected dirty refusal: {screen[-500:]}"
+    print("  PASS: Ctrl-C Ctrl-C refuses dirty")
+
+def test_config_file_sets_options():
+    """Startup config applies set-style options."""
+    path = write_temp("alpha\nbeta\n")
+    with tempfile.TemporaryDirectory() as home:
+        cfg = os.path.join(home, ".vedrc")
+        with open(cfg, "w") as f:
+            f.write("set number\nset relativenumber\nset scrolloff=2\n")
+        screen, _, code = run_ved(b":q\r", file_path=path, env={"HOME": home, "VED_NO_CONFIG": ""})
+    os.unlink(path)
+    assert code == 0
+    frame = last_frame(screen)
+    assert "  1 alpha" in frame, f"Expected numbered line from config: {frame[-500:]}"
+    print("  PASS: config file sets options")
 
 # ── Runner ─────────────────────────────────────────────────────────────────
 
@@ -2503,6 +2551,12 @@ def main():
             test_edit_directory_shows_error_no_crash,
             test_insert_long_line_hscrolls_at_right_edge,
             test_hscroll_shifts_whole_window,
+        ]),
+        ("37", "Phase 37 — quit aliases and config", [
+            test_ctrl_c_ctrl_c_quit_all,
+            test_ctrl_c_q_force_quit_all,
+            test_ctrl_c_ctrl_c_dirty_refuses,
+            test_config_file_sets_options,
         ]),
     ]
 

@@ -232,7 +232,9 @@ class Editor:
         self._pending_find_for_op = None  # (cmd, ch) find for operator
         self._pending_textobj = None  # 'i'/'a' waiting for object key
         self._pending_replace = 0    # count for normal-mode r{char}
+        self._pending_ctrl_c = False # Ctrl-C prefix for quit-all shortcuts
         self.last_key = ""  # last decoded key read from terminal
+        self._load_config()
         self.term = Terminal()
         self._update_size()
 
@@ -294,6 +296,42 @@ class Editor:
         sz = shutil.get_terminal_size()
         self.cols = sz.columns
         self.rows = sz.lines - 2  # reserve 2 lines: status + command
+
+    def _config_paths(self):
+        """Return config files to read, in increasing precedence."""
+        explicit = os.environ.get("VED_CONFIG")
+        if explicit:
+            return [os.path.expanduser(explicit)]
+        xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+        return [
+            os.path.expanduser("~/.vedrc"),
+            os.path.join(xdg, "ved", "config"),
+        ]
+
+    def _load_config(self):
+        """Load simple startup settings from ~/.vedrc or XDG config.
+        Each non-empty, non-comment line is either `set <option>` or `<option>`.
+        """
+        if os.environ.get("VED_NO_CONFIG"):
+            return
+        for path in self._config_paths():
+            try:
+                with open(path, "r") as f:
+                    lines = f.readlines()
+            except FileNotFoundError:
+                continue
+            except OSError as e:
+                self.msg = f"Config error {path}: {e.strerror or str(e)}"
+                continue
+            for raw in lines:
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith(":"):
+                    line = line[1:].lstrip()
+                if line.startswith("set "):
+                    line = line[4:].strip()
+                self._exec_set(line)
 
     def _suspend(self):
         """Suspend ved with Ctrl-Z, then restore raw mode on foreground."""
@@ -372,6 +410,17 @@ class Editor:
         self._clamp_cursor()
         self._ensure_scroll()
         self.mode = Mode.NORMAL
+
+    def _quit_all(self, force=False):
+        """Quit all buffers, respecting dirty buffers unless forced."""
+        if not force:
+            dirty = [bs for bs in self.buffers if bs.buf.dirty]
+            if dirty:
+                self.msg = f"{len(dirty)} buffer(s) have unsaved changes (add ! to override)"
+                self.mode = Mode.NORMAL
+                return False
+        self.running = False
+        return True
 
     # ── Cursor clamping ────────────────────────────────────────────────
 
@@ -1432,6 +1481,20 @@ class Editor:
     # ── Normal mode ────────────────────────────────────────────────────
 
     def handle_normal(self, key):
+        if self._pending_ctrl_c:
+            self._pending_ctrl_c = False
+            if key == "CTRL_C":
+                self._quit_all(force=False)
+                return
+            if key == "q":
+                self._quit_all(force=True)
+                return
+
+        if key == "CTRL_C":
+            self._pending_ctrl_c = True
+            self.msg = "^C"
+            return
+
         # Count prefix accumulation
         if key.isdigit() and (self.count > 0 or key != "0"):
             self.count = self.count * 10 + int(key)
@@ -1946,14 +2009,7 @@ class Editor:
             else:
                 self.running = False
         elif cmd in ("qa", "qa!", "qall", "qall!", "quitall", "quitall!"):
-            force = cmd.endswith("!")
-            if not force:
-                dirty = [bs for bs in self.buffers if bs.buf.dirty]
-                if dirty:
-                    self.msg = f"{len(dirty)} buffer(s) have unsaved changes (add ! to override)"
-                    self.mode = Mode.NORMAL
-                    return
-            self.running = False
+            self._quit_all(force=cmd.endswith("!"))
         elif cmd in ("w", "write"):
             path = self._resolve_cmd_path(arg) if arg else self.buf.path
             if not path:
@@ -2413,7 +2469,7 @@ class Editor:
                 if key == "CTRL_Z":
                     self._suspend()
                     continue
-                if key == "CTRL_C":
+                if key == "CTRL_C" and self.mode != Mode.NORMAL:
                     self.pending_op = ""
                     self._pending_g = False
                     self._pending_space = False
@@ -2421,9 +2477,9 @@ class Editor:
                     self._pending_find = None
                     self._pending_textobj = None
                     self._pending_replace = 0
-                    if self.mode != Mode.NORMAL:
-                        self.mode = Mode.NORMAL
-                        self.cmd = ""
+                    self._pending_ctrl_c = False
+                    self.mode = Mode.NORMAL
+                    self.cmd = ""
                     continue
                 # Clear message on any key (unless entering command/search mode)
                 if self.mode not in (Mode.COMMAND, Mode.SEARCH):
