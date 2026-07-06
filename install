@@ -1,8 +1,10 @@
-#!/usr/bin/env bash 
+#!/usr/bin/env bash
 set -euo pipefail
 
 trap 'rc=\$?; echo "ERROR: \${BASH_SOURCE[0]}:\${LINENO}: \${BASH_COMMAND} exited with status \${rc}" >&2; exit \${rc}' ERR
-trap 'echo "Interrupted" >&2; exit 130' INT 
-instdir=$HOME/.config/scripts
-cp ved.py "$instdir"
-cp ved "$instdir"
+trap 'echo "Interrupted" >&2; exit 130' INT
+
+instdir="$HOME/.config/scripts"
+mkdir -p "$instdir"
+cp vig.py "$instdir/"
+cp vig "$instdir/"

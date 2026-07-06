@@ -2,8 +2,8 @@
 
 ** Done
 1) Add <ctrl>-c <ctrl>-c in normal mode as an alias for :qall and <ctrl>-c q as an alias for :qall!
-2) Add startup config files with default settings (`~/.vedrc`, `$XDG_CONFIG_HOME/ved/config`, or `VED_CONFIG`)
-1) Fix Ctrl-Z suspension so ved actually stops and returns control to the shell
+2) Add startup config files with default settings (`~/.vigrc`, `$XDG_CONFIG_HOME/vig/config`, or `VIG_CONFIG`)
+1) Fix Ctrl-Z suspension so vig actually stops and returns control to the shell
 2) Ctrl-C cancels pending editor state and returns to Normal mode
 3) :e <directory> reports an error instead of crashing
 4) dw at end of line no longer merges next line from last-character or one-past-EOL positions

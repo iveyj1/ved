@@ -2,8 +2,8 @@
 
 **Current state**
 
-- `ved.py`: 2,346 lines.
-- `test_ved.py`: 165 test functions, 35 phase groups.
+- `vig.py`: 2,346 lines.
+- `test_vig.py`: 165 test functions, 35 phase groups.
 - Full test suite passes: `ALL TESTS PASSED`.
 - The editor is functional and broadly conforms to the expanded spec in `AGENTS.md` / `reference.md`.
 
@@ -13,7 +13,7 @@
 
 - Deleted: `.vscode/settings.json`
 - Modified: `AGENTS.md`, `notes`
-- Added: `ved`
+- Added: `vig`
 
 I did not change anything except creating this report file.
 
@@ -25,7 +25,7 @@ I did not change anything except creating this report file.
 
 Major mismatches:
 
-- Says target size is `~500-800 lines`; actual `ved.py` is 2,346 lines.
+- Says target size is `~500-800 lines`; actual `vig.py` is 2,346 lines.
 - Says “No registers, no undo”; current editor has:
   - unnamed register
   - yank/delete/paste
@@ -43,11 +43,11 @@ Recommendation: treat `PLAN.md` as historical, or rewrite it as a current archit
 
 Issues found:
 
-- Says `ved.py` is `~2060 lines`; actual is 2,346.
+- Says `vig.py` is `~2060 lines`; actual is 2,346.
 - Says test suite has 149 tests; actual number of `test_*` functions is 165.
 - Says stdlib imports are exactly:
   - `sys`, `os`, `re`, `base64`, `termios`, `tty`, `atexit`, `signal`, `shutil`, `select`, `enum`
-- But `ved.py` also imports `subprocess` locally for:
+- But `vig.py` also imports `subprocess` locally for:
   - external clipboard commands
   - `:read !cmd`
   - `:! cmd`
@@ -152,7 +152,7 @@ I would not split the project into modules yet, because “single source file”
 
 Recommended refactoring scope:
 
-- Keep `ved.py` single-file.
+- Keep `vig.py` single-file.
 - Add clearer internal sectioning.
 - Extract command handlers from `_exec_command`, e.g.:
   - `_cmd_write`
@@ -191,9 +191,9 @@ These goals remain intact:
 
 **Changed in spirit**
 
-The original “radical simplicity” goal has evolved.
+The original “radical simplicity” goal has evolvig.
 
-Originally, ved was a tiny modal editor with:
+Originally, vig was a tiny modal editor with:
 
 - basic movement
 - insert

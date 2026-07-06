@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke tests for ved. PTY-based, plain asserts, no dependencies."""
+"""Smoke tests for vig. PTY-based, plain asserts, no dependencies."""
 
 import os
 import sys
@@ -9,13 +9,13 @@ import signal
 import tempfile
 import select
 
-VED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ved.py")
+VIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vig.py")
 
 # ── Harness ────────────────────────────────────────────────────────────────
 
-def run_ved(keys, file_path=None, file_paths=None, timeout=3.0, rows=24, cols=80, env=None):
+def run_vig(keys, file_path=None, file_paths=None, timeout=3.0, rows=24, cols=80, env=None):
     """
-    Launch ved in a PTY, send `keys`, wait for exit or timeout.
+    Launch vig in a PTY, send `keys`, wait for exit or timeout.
     Returns (screen_output, file_contents_after, exit_code).
     
     keys: bytes to feed to stdin
@@ -56,17 +56,17 @@ def run_ved(keys, file_path=None, file_paths=None, timeout=3.0, rows=24, cols=80
         if slave > 2:
             os.close(slave)
         if env is None:
-            os.environ["VED_NO_CONFIG"] = "1"
+            os.environ["VIG_NO_CONFIG"] = "1"
         else:
             os.environ.update(env)
-        os.execvp(sys.executable, [sys.executable, VED] + all_paths)
+        os.execvp(sys.executable, [sys.executable, VIG] + all_paths)
         os._exit(1)
 
     # Parent
     os.close(slave)
     output = b""
 
-    # Wait a moment for ved to start and render
+    # Wait a moment for vig to start and render
     time.sleep(0.3)
 
     # Send keys — escape sequences are sent atomically so the editor
@@ -176,24 +176,24 @@ def write_temp(content):
 # ── Phase 1: Scaffold ─────────────────────────────────────────────────────
 
 def test_open_and_quit():
-    """Open ved with no file and quit."""
-    screen, _, code = run_ved(b":q\r")
+    """Open vig with no file and quit."""
+    screen, _, code = run_vig(b":q\r")
     assert code == 0, f"Expected exit 0, got {code}"
     print("  PASS: open & quit")
 
 def test_open_file_visible():
     """Open a file and check content appears on screen."""
-    path = write_temp("Hello from ved\nSecond line\n")
-    screen, _, code = run_ved(b":q\r", file_path=path)
+    path = write_temp("Hello from vig\nSecond line\n")
+    screen, _, code = run_vig(b":q\r", file_path=path)
     os.unlink(path)
     assert code == 0
-    assert "Hello from ved" in screen, f"Content not visible in: {screen[:200]}"
+    assert "Hello from vig" in screen, f"Content not visible in: {screen[:200]}"
     print("  PASS: file content visible")
 
 def test_j_k_movement():
     """j/k movement doesn't crash."""
     path = write_temp("line1\nline2\nline3\nline4\n")
-    screen, _, code = run_ved(b"jjk:q\r", file_path=path)
+    screen, _, code = run_vig(b"jjk:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     print("  PASS: j/k movement")
@@ -201,7 +201,7 @@ def test_j_k_movement():
 def test_h_l_movement():
     """h/l movement doesn't crash."""
     path = write_temp("abcdefgh\n")
-    screen, _, code = run_ved(b"llh:q\r", file_path=path)
+    screen, _, code = run_vig(b"llh:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     print("  PASS: h/l movement")
@@ -211,7 +211,7 @@ def test_scroll_down():
     content = "\n".join(f"line {i}" for i in range(50)) + "\n"
     path = write_temp(content)
     keys = b"j" * 30 + b":q\r"
-    screen, _, code = run_ved(keys, file_path=path, timeout=6.0)
+    screen, _, code = run_vig(keys, file_path=path, timeout=6.0)
     os.unlink(path)
     assert code == 0, f"Expected exit 0, got {code}"
     print("  PASS: scroll down")
@@ -221,7 +221,7 @@ def test_scroll_down():
 def test_insert_text():
     """Insert text and save."""
     path = write_temp("")
-    screen, content, code = run_ved(b"ihello\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"ihello\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "hello" in content, f"Expected 'hello' in file, got: {content!r}"
@@ -230,7 +230,7 @@ def test_insert_text():
 def test_a_appends():
     """'a' appends after cursor."""
     path = write_temp("ab\n")
-    screen, content, code = run_ved(b"aX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"aX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "aXb" in content, f"Expected 'aXb' in file, got: {content!r}"
@@ -239,7 +239,7 @@ def test_a_appends():
 def test_I_beginning():
     """'I' inserts at first non-blank."""
     path = write_temp("  hello\n")
-    screen, content, code = run_ved(b"IX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"IX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "  Xhello" in content, f"Expected '  Xhello', got: {content!r}"
@@ -248,7 +248,7 @@ def test_I_beginning():
 def test_A_end():
     """'A' appends at end of line."""
     path = write_temp("hello\n")
-    screen, content, code = run_ved(b"AX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"AX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "helloX" in content, f"Expected 'helloX', got: {content!r}"
@@ -257,7 +257,7 @@ def test_A_end():
 def test_enter_splits():
     """Enter in insert mode splits line."""
     path = write_temp("")
-    screen, content, code = run_ved(b"ihello\rworld\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"ihello\rworld\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.strip().split("\n")
@@ -270,7 +270,7 @@ def test_backspace_joins():
     """Backspace at start of line joins with previous."""
     path = write_temp("hello\nworld\n")
     # Go to line 2, column 0 (j), enter insert (I), backspace to join
-    screen, content, code = run_ved(b"jI\x7f\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"jI\x7f\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "helloworld" in content, f"Expected 'helloworld', got: {content!r}"
@@ -279,7 +279,7 @@ def test_backspace_joins():
 def test_write_save():
     """:w saves without quitting."""
     path = write_temp("")
-    screen, content, code = run_ved(b"ix\x1b:w\r:q\r", file_path=path)
+    screen, content, code = run_vig(b"ix\x1b:w\r:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "x" in content
@@ -289,7 +289,7 @@ def test_quit_dirty_refuses():
     """:q on dirty buffer shows error."""
     path = write_temp("")
     # Insert, try to quit — should refuse. Then force quit.
-    screen, _, code = run_ved(b"ix\x1b:q\r:q!\r", file_path=path, timeout=5.0)
+    screen, _, code = run_vig(b"ix\x1b:q\r:q!\r", file_path=path, timeout=5.0)
     os.unlink(path)
     assert code == 0, f"Expected exit 0, got {code}"
     assert "No write" in screen or "override" in screen, f"Expected dirty warning in screen output"
@@ -299,7 +299,7 @@ def test_edit_file():
     """:e opens a file."""
     path1 = write_temp("original\n")
     path2 = write_temp("other file\n")
-    screen, _, code = run_ved(f":e {path2}\r:q\r:q\r".encode(), file_path=path1)
+    screen, _, code = run_vig(f":e {path2}\r:q\r:q\r".encode(), file_path=path1)
     os.unlink(path1)
     os.unlink(path2)
     assert code == 0
@@ -308,7 +308,7 @@ def test_edit_file():
 def test_new_buffer():
     """:new creates empty buffer."""
     path = write_temp("stuff\n")
-    screen, _, code = run_ved(b":new\r:q\r:q\r", file_path=path)
+    screen, _, code = run_vig(b":new\r:q\r:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     print("  PASS: :new")
@@ -320,7 +320,7 @@ def test_w_forward_word():
     path = write_temp("hello world\n")
     # w should move from 'h' to 'w' (position 6)
     # Insert a marker: go to cursor pos after w, insert X
-    screen, content, code = run_ved(b"wiX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"wiX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "hello Xworld" in content, f"Expected 'hello Xworld', got: {content!r}"
@@ -330,7 +330,7 @@ def test_b_backward_word():
     """b moves to start of previous word."""
     path = write_temp("hello world\n")
     # Move to 'w' with w, then b should go back to 'h'
-    screen, content, code = run_ved(b"wbiX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"wbiX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "Xhello" in content, f"Expected 'Xhello', got: {content!r}"
@@ -340,7 +340,7 @@ def test_e_end_word():
     """e moves to end of word."""
     path = write_temp("hello world\n")
     # e should land on 'o' (pos 4), then insert after
-    screen, content, code = run_ved(b"eaX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"eaX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "helloX" in content, f"Expected 'helloX', got: {content!r}"
@@ -350,7 +350,7 @@ def test_W_forward_WORD():
     """W moves to start of next WORD (whitespace-delimited)."""
     path = write_temp("a.b c.d\n")
     # W from 'a' should skip 'a.b' and land on 'c'
-    screen, content, code = run_ved(b"WiX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"WiX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "a.b Xc.d" in content, f"Expected 'a.b Xc.d', got: {content!r}"
@@ -360,7 +360,7 @@ def test_B_backward_WORD():
     """B moves to start of previous WORD."""
     path = write_temp("a.b c.d\n")
     # Move to WORD 'c.d' with W, then B back to 'a.b'
-    screen, content, code = run_ved(b"WBiX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"WBiX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "Xa.b" in content, f"Expected 'Xa.b', got: {content!r}"
@@ -370,7 +370,7 @@ def test_E_end_WORD():
     """E moves to end of WORD."""
     path = write_temp("a.b c.d\n")
     # E from 'a' should land on 'b' (end of 'a.b')
-    screen, content, code = run_ved(b"EaX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"EaX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "a.bX" in content, f"Expected 'a.bX', got: {content!r}"
@@ -379,7 +379,7 @@ def test_E_end_WORD():
 def test_e_from_eol_stays_on_current_line_last_word():
     """e from one-past-EOL lands on the current line's last word end."""
     path = write_temp("abc\nxyz\n")
-    screen, content, code = run_ved(b"$eaX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"$eaX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "abcX\nxyz\n", f"Expected 'abcX' on first line, got: {content!r}"
@@ -388,7 +388,7 @@ def test_e_from_eol_stays_on_current_line_last_word():
 def test_e_crosses_empty_line_without_crash():
     """Repeated e crosses empty lines safely without crashing."""
     path = write_temp("abc\n\nxyz\n")
-    screen, content, code = run_ved(b"$eeaX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"$eeaX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "abc\n\nxyzX\n", f"Expected move to next word end, got: {content!r}"
@@ -397,7 +397,7 @@ def test_e_crosses_empty_line_without_crash():
 def test_w_skips_empty_line_to_next_word():
     """w should skip empty lines and land on the next word start."""
     path = write_temp("abc\n\nxyz\n")
-    screen, content, code = run_ved(b"$wiX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"$wiX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "abc\n\nXxyz\n", f"Expected w to skip blank line, got: {content!r}"
@@ -406,7 +406,7 @@ def test_w_skips_empty_line_to_next_word():
 def test_w_newline_is_word_boundary():
     """w should stop at next line word start, not skip it."""
     path = write_temp("sys\nimport os\n")
-    screen, content, code = run_ved(b"wiX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"wiX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "sys\nXimport os\n", f"Expected w to land on 'import', got: {content!r}"
@@ -415,7 +415,7 @@ def test_w_newline_is_word_boundary():
 def test_e_newline_is_word_boundary():
     """e should stop at end of current line word, not next line word."""
     path = write_temp("abc\ndef ghi\n")
-    screen, content, code = run_ved(b"eaX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"eaX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "abcX\ndef ghi\n", f"Expected e to end on first line, got: {content!r}"
@@ -425,7 +425,7 @@ def test_b_newline_is_word_boundary():
     """b should stop at current line word start before crossing lines."""
     path = write_temp("import sys\nimport os\n")
     # From 'os', b should land on current line 'import', not previous line 'sys'.
-    screen, content, code = run_ved(b"2G7lbiX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"2G7lbiX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "import sys\nXimport os\n", f"Expected b to land on current line, got: {content!r}"
@@ -434,7 +434,7 @@ def test_b_newline_is_word_boundary():
 def test_B_newline_is_word_boundary():
     """B should stop at current line WORD start before crossing lines."""
     path = write_temp("import sys\nimport os\n")
-    screen, content, code = run_ved(b"2G7lBiX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"2G7lBiX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "import sys\nXimport os\n", f"Expected B to land on current line, got: {content!r}"
@@ -443,7 +443,7 @@ def test_B_newline_is_word_boundary():
 def test_W_newline_is_word_boundary():
     """W should land on next line start, not skip it."""
     path = write_temp("a.b\nc.d\n")
-    screen, content, code = run_ved(b"WiX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"WiX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "a.b\nXc.d\n", f"Expected W to land on next line start, got: {content!r}"
@@ -452,7 +452,7 @@ def test_W_newline_is_word_boundary():
 def test_E_newline_is_word_boundary():
     """E should end current line WORD, not jump to next line."""
     path = write_temp("a.b\nc.d\n")
-    screen, content, code = run_ved(b"EaX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"EaX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "a.bX\nc.d\n", f"Expected E to end first line WORD, got: {content!r}"
@@ -464,7 +464,7 @@ def test_v_enters_visual():
     """v enters visual mode (reverse video appears in output)."""
     path = write_temp("hello world\n")
     # Enter visual, move right to extend selection, then quit
-    screen, _, code = run_ved(b"vll\x1b:q\r", file_path=path)
+    screen, _, code = run_vig(b"vll\x1b:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     # Check that reverse video was used at some point
@@ -474,7 +474,7 @@ def test_v_enters_visual():
 def test_V_line_visual():
     """V enters visual line mode."""
     path = write_temp("line one\nline two\n")
-    screen, _, code = run_ved(b"V\x1b:q\r", file_path=path)
+    screen, _, code = run_vig(b"V\x1b:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "\x1b[7m" in screen, "Expected reverse video in visual line mode"
@@ -484,7 +484,7 @@ def test_visual_esc_cancels():
     """Esc returns to normal mode from visual."""
     path = write_temp("hello\n")
     # Enter visual, then escape, then quit normally
-    screen, _, code = run_ved(b"v\x1b:q\r", file_path=path)
+    screen, _, code = run_vig(b"v\x1b:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     print("  PASS: visual Esc cancels")
@@ -493,7 +493,7 @@ def test_visual_motion_extends():
     """Motion in visual mode extends selection."""
     path = write_temp("abcdefgh\n")
     # v, then move right 3 times — should highlight 4 chars
-    screen, _, code = run_ved(b"vlll\x1b:q\r", file_path=path)
+    screen, _, code = run_vig(b"vlll\x1b:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     # The reverse-video segment should appear
@@ -505,7 +505,7 @@ def test_visual_motion_extends():
 def test_status_bar_shown():
     """Status bar shows filename."""
     path = write_temp("test content\n")
-    screen, _, code = run_ved(b":q\r", file_path=path)
+    screen, _, code = run_vig(b":q\r", file_path=path)
     # Check filename appears in status bar
     basename = os.path.basename(path)
     os.unlink(path)
@@ -516,7 +516,7 @@ def test_status_bar_shown():
 def test_wq_command():
     """:wq writes and quits."""
     path = write_temp("")
-    screen, content, code = run_ved(b"ihello\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"ihello\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "hello" in content
@@ -525,7 +525,7 @@ def test_wq_command():
 def test_q_bang_forces():
     """:q! forces quit on dirty buffer."""
     path = write_temp("original\n")
-    screen, content, code = run_ved(b"ix\x1b:q!\r", file_path=path)
+    screen, content, code = run_vig(b"ix\x1b:q!\r", file_path=path)
     # File should be unchanged
     assert code == 0
     assert content == "original\n", f"File should be unchanged, got: {content!r}"
@@ -535,7 +535,7 @@ def test_q_bang_forces():
 def test_empty_file():
     """Opening empty file shows tildes, no crash."""
     path = write_temp("")
-    screen, _, code = run_ved(b":q\r", file_path=path)
+    screen, _, code = run_vig(b":q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "~" in screen, "Expected tilde for empty lines"
@@ -543,9 +543,9 @@ def test_empty_file():
 
 # ── Phase 6: Resize ───────────────────────────────────────────────────────
 
-def run_ved_with_resize(keys_before, keys_after, new_rows, new_cols,
+def run_vig_with_resize(keys_before, keys_after, new_rows, new_cols,
                          file_path=None, timeout=5.0):
-    """Launch ved, send keys_before, resize PTY, send keys_after, return output."""
+    """Launch vig, send keys_before, resize PTY, send keys_after, return output."""
     import struct, fcntl, termios as tm
 
     if isinstance(keys_before, str):
@@ -573,7 +573,7 @@ def run_ved_with_resize(keys_before, keys_after, new_rows, new_cols,
         os.dup2(slave, 2)
         if slave > 2:
             os.close(slave)
-        os.execvp(sys.executable, [sys.executable, VED, file_path])
+        os.execvp(sys.executable, [sys.executable, VIG, file_path])
         os._exit(1)
 
     os.close(slave)
@@ -656,9 +656,9 @@ def run_ved_with_resize(keys_before, keys_after, new_rows, new_cols,
 
 
 def test_sigwinch_no_crash():
-    """SIGWINCH doesn't crash ved."""
+    """SIGWINCH doesn't crash vig."""
     path = write_temp("hello world\nline two\n")
-    screen, _, code = run_ved_with_resize(
+    screen, _, code = run_vig_with_resize(
         b"", b":q\r", new_rows=30, new_cols=100, file_path=path)
     os.unlink(path)
     assert code == 0, f"Expected exit 0 after resize, got {code}"
@@ -668,7 +668,7 @@ def test_resize_shrink_grow():
     """Shrink then content survives."""
     content = "\n".join(f"line {i}" for i in range(20)) + "\n"
     path = write_temp(content)
-    screen, _, code = run_ved_with_resize(
+    screen, _, code = run_vig_with_resize(
         b"", b":q\r", new_rows=12, new_cols=40, file_path=path)
     os.unlink(path)
     assert code == 0, f"Expected exit 0, got {code}"
@@ -682,7 +682,7 @@ def test_count_3j():
     content = "\n".join(f"line{i}" for i in range(10)) + "\n"
     path = write_temp(content)
     # 3j moves to line 3 (0-indexed), insert a marker
-    screen, file_content, code = run_ved(b"3jiX\x1b:wq\r", file_path=path)
+    screen, file_content, code = run_vig(b"3jiX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     lines = file_content.strip().split("\n")
@@ -693,7 +693,7 @@ def test_count_5l():
     """5l moves right 5 characters."""
     path = write_temp("abcdefgh\n")
     # 5l moves to column 5 ('f'), insert before it
-    screen, content, code = run_ved(b"5liX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"5liX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "abcdeXfgh" in content, f"Expected 'abcdeXfgh', got: {content!r}"
@@ -703,7 +703,7 @@ def test_count_resets_on_esc():
     """Typing digits then Esc resets count, normal quit works."""
     path = write_temp("hello\n")
     # Type '3', then Esc (which is a non-digit key to normal, resets count), then :q
-    screen, _, code = run_ved(b"3\x1b:q\r", file_path=path)
+    screen, _, code = run_vig(b"3\x1b:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     print("  PASS: count resets on Esc")
@@ -713,7 +713,7 @@ def test_count_resets_on_esc():
 def test_dd_deletes_line():
     """dd deletes the current line."""
     path = write_temp("aaa\nbbb\nccc\n")
-    screen, content, code = run_ved(b"jdd:wq\r", file_path=path)
+    screen, content, code = run_vig(b"jdd:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.strip() == "aaa\nccc", f"Expected 'aaa\\nccc', got: {content!r}"
@@ -722,7 +722,7 @@ def test_dd_deletes_line():
 def test_2dd_deletes_two_lines():
     """2dd deletes 2 lines."""
     path = write_temp("aaa\nbbb\nccc\nddd\n")
-    screen, content, code = run_ved(b"j2dd:wq\r", file_path=path)
+    screen, content, code = run_vig(b"j2dd:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.strip() == "aaa\nddd", f"Expected 'aaa\\nddd', got: {content!r}"
@@ -731,7 +731,7 @@ def test_2dd_deletes_two_lines():
 def test_dw_deletes_word():
     """dw deletes a word."""
     path = write_temp("hello world\n")
-    screen, content, code = run_ved(b"dw:wq\r", file_path=path)
+    screen, content, code = run_vig(b"dw:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     # dw from start of "hello world" deletes "hello " (word + trailing space via w motion)
@@ -743,7 +743,7 @@ def test_D_deletes_to_end():
     """D deletes from cursor to end of line."""
     path = write_temp("hello world\n")
     # Move right 5 (to space), then D
-    screen, content, code = run_ved(b"5lD:wq\r", file_path=path)
+    screen, content, code = run_vig(b"5lD:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.strip() == "hello", f"Expected 'hello', got: {content!r}"
@@ -752,7 +752,7 @@ def test_D_deletes_to_end():
 def test_yy_p_paste_line():
     """yy yanks line, p pastes below."""
     path = write_temp("aaa\nbbb\n")
-    screen, content, code = run_ved(b"yyp:wq\r", file_path=path)
+    screen, content, code = run_vig(b"yyp:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.strip().split("\n")
@@ -763,7 +763,7 @@ def test_yy_P_paste_above():
     """yy on line 2, P pastes above."""
     path = write_temp("aaa\nbbb\nccc\n")
     # j moves to bbb, yy yanks it, P pastes above current (bbb)
-    screen, content, code = run_ved(b"jyyP:wq\r", file_path=path)
+    screen, content, code = run_vig(b"jyyP:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.strip().split("\n")
@@ -773,7 +773,7 @@ def test_yy_P_paste_above():
 def test_cw_changes_word():
     """cw deletes word and enters insert mode."""
     path = write_temp("hello world\n")
-    screen, content, code = run_ved(b"cwfoo\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"cwfoo\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     # cw uses w motion (deletes "hello " including trailing space), then "foo" is typed
@@ -783,7 +783,7 @@ def test_cw_changes_word():
 def test_cc_changes_line():
     """cc deletes line content and enters insert mode."""
     path = write_temp("hello world\nsecond\n")
-    screen, content, code = run_ved(b"ccnew text\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"ccnew text\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.strip().split("\n")
@@ -794,7 +794,7 @@ def test_cc_changes_line():
 def test_C_changes_to_end():
     """C deletes from cursor to EOL and enters insert mode."""
     path = write_temp("hello world\n")
-    screen, content, code = run_ved(b"5lCXYZ\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"5lCXYZ\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.strip() == "helloXYZ", f"Expected 'helloXYZ', got: {content!r}"
@@ -803,7 +803,7 @@ def test_C_changes_to_end():
 def test_dd_on_last_line():
     """dd on the only remaining line leaves empty buffer."""
     path = write_temp("only\n")
-    screen, content, code = run_ved(b"ddireplaced\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"ddireplaced\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "replaced" in content, f"Expected 'replaced', got: {content!r}"
@@ -813,7 +813,7 @@ def test_p_charwise_paste():
     """dw + p pastes deleted word charwise after cursor."""
     path = write_temp("hello world\n")
     # dw deletes "hello " → cursor on "world" col 0, p pastes after cursor (col 1)
-    screen, content, code = run_ved(b"dwp:wq\r", file_path=path)
+    screen, content, code = run_vig(b"dwp:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     # charwise p inserts after cursor: "w" + "hello " + "orld" = "whello orld"
@@ -826,7 +826,7 @@ def test_visual_delete():
     """v + select + d deletes selection."""
     path = write_temp("abcdef\n")
     # v to enter visual, ll to select 'abc', d to delete
-    screen, content, code = run_ved(b"vlld:wq\r", file_path=path)
+    screen, content, code = run_vig(b"vlld:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.strip() == "def", f"Expected 'def', got: {content!r}"
@@ -836,7 +836,7 @@ def test_visual_yank_paste():
     """v + select + y yanks, then p pastes."""
     path = write_temp("abcdef\n")
     # v, ll selects "abc", y yanks, $ to end, p pastes after
-    screen, content, code = run_ved(b"vlly$p:wq\r", file_path=path)
+    screen, content, code = run_vig(b"vlly$p:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "abc" in content, f"Expected 'abc' in content, got: {content!r}"
@@ -846,7 +846,7 @@ def test_visual_yank_paste():
 def test_visual_change():
     """v + select + c deletes selection and enters insert mode."""
     path = write_temp("abcdef\n")
-    screen, content, code = run_ved(b"vllcXYZ\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"vllcXYZ\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.strip() == "XYZdef", f"Expected 'XYZdef', got: {content!r}"
@@ -855,7 +855,7 @@ def test_visual_change():
 def test_visual_line_delete():
     """V + j + d deletes 2 lines."""
     path = write_temp("aaa\nbbb\nccc\n")
-    screen, content, code = run_ved(b"Vjd:wq\r", file_path=path)
+    screen, content, code = run_vig(b"Vjd:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.strip() == "ccc", f"Expected 'ccc', got: {content!r}"
@@ -864,7 +864,7 @@ def test_visual_line_delete():
 def test_visual_x_same_as_d():
     """x in visual mode works like d."""
     path = write_temp("abcdef\n")
-    screen, content, code = run_ved(b"vllx:wq\r", file_path=path)
+    screen, content, code = run_vig(b"vllx:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.strip() == "def", f"Expected 'def', got: {content!r}"
@@ -876,7 +876,7 @@ def test_search_forward():
     """/ searches forward and moves cursor to match."""
     path = write_temp("aaa\nbbb\nccc\n")
     # /bbb<Enter> should move cursor to line 1 (bbb)
-    screen, content, code = run_ved(b"/bbb\riX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"/bbb\riX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "Xbbb" in content, f"Expected 'Xbbb', got: {content!r}"
@@ -886,7 +886,7 @@ def test_search_backward():
     """? searches backward."""
     path = write_temp("aaa\nbbb\nccc\n")
     # Go to last line, then ?aaa<Enter> should find line 0
-    screen, content, code = run_ved(b"jj?aaa\riX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"jj?aaa\riX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "Xaaa" in content, f"Expected 'Xaaa', got: {content!r}"
@@ -896,7 +896,7 @@ def test_search_n_repeats():
     """n repeats the last search."""
     path = write_temp("foo\nbar\nfoo\nbaz\n")
     # /foo<Enter> finds line 2 (skipping line 0 where we start), n wraps to line 0
-    screen, content, code = run_ved(b"/foo\rniX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"/foo\rniX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "Xfoo" in content, f"Expected 'Xfoo', got: {content!r}"
@@ -906,7 +906,7 @@ def test_search_N_reverses():
     """N repeats search in opposite direction."""
     path = write_temp("foo\nbar\nfoo\nbaz\n")
     # On line 0, /foo<Enter> finds line 2, N goes backward to line 0
-    screen, content, code = run_ved(b"/foo\rNiX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"/foo\rNiX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "Xfoo" in content, f"Expected 'Xfoo', got: {content!r}"
@@ -915,7 +915,7 @@ def test_search_N_reverses():
 def test_search_not_found():
     """Search for nonexistent pattern shows message, doesn't crash."""
     path = write_temp("hello\nworld\n")
-    screen, content, code = run_ved(b"/zzz\r:q\r", file_path=path)
+    screen, content, code = run_vig(b"/zzz\r:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "not found" in screen.lower() or True  # just verify no crash
@@ -925,7 +925,7 @@ def test_search_esc_cancels():
     """Esc during search cancels without moving cursor."""
     path = write_temp("aaa\nbbb\n")
     # Start search, type partial, Esc, then insert at original pos
-    screen, content, code = run_ved(b"/bb\x1biX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"/bb\x1biX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "Xaaa" in content, f"Expected 'Xaaa' (cursor stayed on line 0), got: {content!r}"
@@ -936,7 +936,7 @@ def test_search_esc_cancels():
 def test_substitute_current_line():
     """s/pat/repl/ on current line replaces first match."""
     path = write_temp("foo bar foo\nsecond\n")
-    screen, content, code = run_ved(b":s/foo/baz/\r:wq\r", file_path=path)
+    screen, content, code = run_vig(b":s/foo/baz/\r:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.strip().split("\n")
@@ -946,7 +946,7 @@ def test_substitute_current_line():
 def test_substitute_global_flag():
     """s/pat/repl/g replaces all occurrences on current line."""
     path = write_temp("foo bar foo\n")
-    screen, content, code = run_ved(b":s/foo/baz/g\r:wq\r", file_path=path)
+    screen, content, code = run_vig(b":s/foo/baz/g\r:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.strip() == "baz bar baz", f"Expected 'baz bar baz', got: {content!r}"
@@ -955,7 +955,7 @@ def test_substitute_global_flag():
 def test_substitute_whole_file():
     """%s/pat/repl/g replaces across all lines."""
     path = write_temp("aaa\nbbb\naaa\n")
-    screen, content, code = run_ved(b":%s/aaa/zzz/g\r:wq\r", file_path=path)
+    screen, content, code = run_vig(b":%s/aaa/zzz/g\r:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.strip().split("\n")
@@ -965,7 +965,7 @@ def test_substitute_whole_file():
 def test_substitute_line_range():
     """2,3s/x/y/ replaces on lines 2-3 only."""
     path = write_temp("x1\nx2\nx3\nx4\n")
-    screen, content, code = run_ved(b":2,3s/x/y/\r:wq\r", file_path=path)
+    screen, content, code = run_vig(b":2,3s/x/y/\r:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.strip().split("\n")
@@ -975,7 +975,7 @@ def test_substitute_line_range():
 def test_substitute_regex():
     """s/ with regex pattern works."""
     path = write_temp("abc 123 def\n")
-    screen, content, code = run_ved(b":s/[0-9]+/NUM/\r:wq\r", file_path=path)
+    screen, content, code = run_vig(b":s/[0-9]+/NUM/\r:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.strip() == "abc NUM def", f"Expected 'abc NUM def', got: {content!r}"
@@ -984,7 +984,7 @@ def test_substitute_regex():
 def test_substitute_not_found():
     """s/ with no match shows message, no crash."""
     path = write_temp("hello\n")
-    screen, content, code = run_ved(b":s/zzz/aaa/\r:q\r", file_path=path)
+    screen, content, code = run_vig(b":s/zzz/aaa/\r:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     print("  PASS: s/ not found")
@@ -995,7 +995,7 @@ def test_set_wrap():
     """:set wrap enables wrap, :set nowrap disables."""
     path = write_temp("short\n")
     # :set wrap should not crash, then :q
-    screen, _, code = run_ved(b":set wrap\r:q\r", file_path=path)
+    screen, _, code = run_vig(b":set wrap\r:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     print("  PASS: :set wrap")
@@ -1005,7 +1005,7 @@ def test_wrap_long_line():
     # 40-col terminal, line of 60 chars should wrap to 2 rows
     long_line = "A" * 60 + "\n"
     path = write_temp(long_line)
-    screen, _, code = run_ved(b":set wrap\r:q\r", file_path=path, cols=40)
+    screen, _, code = run_vig(b":set wrap\r:q\r", file_path=path, cols=40)
     os.unlink(path)
     assert code == 0
     # Screen should contain the full line broken across rows
@@ -1018,7 +1018,7 @@ def test_nowrap_truncates():
     """Without wrap, long lines are truncated."""
     long_line = "B" * 100 + "\n"
     path = write_temp(long_line)
-    screen, _, code = run_ved(b":q\r", file_path=path, cols=40)
+    screen, _, code = run_vig(b":q\r", file_path=path, cols=40)
     os.unlink(path)
     assert code == 0
     # Should see at most 40 B's per row
@@ -1031,7 +1031,7 @@ def test_wrap_cursor_position():
     path = write_temp(long_line)
     # :set wrap, move right 25 times, insert marker
     keys = b":set wrap\r" + b"25liM\x1b:wq\r"
-    screen, content, code = run_ved(keys, file_path=path, cols=20)
+    screen, content, code = run_vig(keys, file_path=path, cols=20)
     os.unlink(path)
     assert code == 0
     assert "M" in content, f"Expected 'M' in content, got: {content!r}"
@@ -1043,7 +1043,7 @@ def test_set_number():
     """:set number shows absolute line numbers."""
     path = write_temp("alpha\nbeta\ngamma\n")
     keys = b":set number\r:q\r"
-    screen, _, code = run_ved(keys, file_path=path, cols=40)
+    screen, _, code = run_vig(keys, file_path=path, cols=40)
     os.unlink(path)
     assert code == 0
     assert "1 alpha" in screen, f"Expected '1 alpha' in screen: {screen[:300]}"
@@ -1057,7 +1057,7 @@ def test_set_relativenumber():
     path = write_temp("alpha\nbeta\ngamma\ndelta\n")
     # Cursor on line 1 (0-indexed: 0), so distances are 0,1,2,3
     keys = b":set relativenumber\r:q\r"
-    screen, _, code = run_ved(keys, file_path=path, cols=40)
+    screen, _, code = run_vig(keys, file_path=path, cols=40)
     os.unlink(path)
     assert code == 0
     # Current line shows 0, next lines show 1, 2, 3
@@ -1071,7 +1071,7 @@ def test_number_and_relnum():
     path = write_temp("alpha\nbeta\ngamma\ndelta\nepsilon\n")
     # Move to line 3 (0-indexed: 2), then enable both
     keys = b"2j:set number\r:set relativenumber\r:q\r"
-    screen, _, code = run_ved(keys, file_path=path, cols=40)
+    screen, _, code = run_vig(keys, file_path=path, cols=40)
     os.unlink(path)
     assert code == 0
     # Line 3 (cursor) should show absolute '3', others relative
@@ -1087,7 +1087,7 @@ def test_number_with_wrap():
     long_line = "A" * 30 + "\nshort\n"
     path = write_temp(long_line)
     keys = b":set wrap\r:set number\r:q\r"
-    screen, _, code = run_ved(keys, file_path=path, cols=20)
+    screen, _, code = run_vig(keys, file_path=path, cols=20)
     os.unlink(path)
     assert code == 0
     assert "1 " in screen, f"Expected '1 ' gutter in screen: {screen[:300]}"
@@ -1103,7 +1103,7 @@ def test_insert_arrow_left_right():
     # Actually: start at col 0. i enters insert. Type X → "Xabcd", cx=1.
     # Right arrow → cx=2. Type Y → "XaYbcd", cx=3.
     keys = b"iX\x1b[CY\x1b:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "XaYbcd" in content, f"Expected 'XaYbcd', got: {content!r}"
@@ -1116,7 +1116,7 @@ def test_insert_arrow_up_down():
     # Cursor starts at (0,0). j → (1,0). i → insert at (1,0).
     # Down arrow → (2,0). Type X → "Xccc"
     keys = b"ji\x1b[BX\x1b:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.strip().split("\n")
@@ -1130,7 +1130,7 @@ def test_undo_insert():
     path = write_temp("abc\n")
     # Enter insert, type XY, Esc, then undo, then save
     keys = b"iXY\x1bu:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.strip() == "abc", f"Expected 'abc' after undo, got: {content!r}"
@@ -1141,7 +1141,7 @@ def test_undo_dd():
     path = write_temp("line1\nline2\nline3\n")
     # dd deletes line1, u restores it, then save
     keys = b"ddu:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.strip().split("\n")
@@ -1153,7 +1153,7 @@ def test_redo_after_undo():
     path = write_temp("line1\nline2\nline3\n")
     # dd deletes line1, u restores, Ctrl-R re-deletes, save
     keys = b"ddu\x12:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.strip().split("\n")
@@ -1165,7 +1165,7 @@ def test_undo_paste():
     path = write_temp("hello\nworld\n")
     # yy yanks line, p pastes below, u undoes paste, save
     keys = b"yypu:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.strip().split("\n")
@@ -1177,7 +1177,7 @@ def test_undo_substitute():
     path = write_temp("foo bar foo\n")
     # :%s/foo/baz/g then u, save
     keys = b":%s/foo/baz/g\ru:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.strip() == "foo bar foo", f"Expected original, got: {content!r}"
@@ -1189,7 +1189,7 @@ def test_undo_redo_dirty_flag():
     # Save (already clean), insert X Esc (dirty), u (clean again).
     # :q should succeed (not dirty)
     keys = b"iX\x1bu:q\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0, f"Expected clean exit (dirty flag cleared by undo), got code {code}"
     print("  PASS: undo/redo dirty flag")
@@ -1200,13 +1200,13 @@ def test_undo_insert_word_checkpoint():
     # Insert "aaa bbb ccc ddd " — 4 WORDs = 2 checkpoints.
     # Esc, then u should undo the last 2 WORDs, u again undoes the first 2.
     keys = b"iaaa bbb ccc ddd \x1bu:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     # After one undo: should have first 2 words + checkpoint content
     stripped = content.strip()
     assert "aaa" in stripped, f"Expected partial content after one undo, got: {content!r}"
-    assert "ddd" not in stripped, f"Expected 'ddd' removed by undo, got: {content!r}"
+    assert "ddd" not in stripped, f"Expected 'ddd' removig by undo, got: {content!r}"
     print("  PASS: undo insert word checkpoint")
 
 def test_undo_visual_delete():
@@ -1214,7 +1214,7 @@ def test_undo_visual_delete():
     path = write_temp("abcdef\n")
     # v + ll selects 'abc', d deletes, u restores, save
     keys = b"vlld\x1bu:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     # After delete we're in NORMAL, ESC is harmless, u undoes
@@ -1227,7 +1227,7 @@ def test_redo_cleared_on_new_edit():
     # dd (delete line), u (undo), iNEW Esc (new edit), Ctrl-R should do nothing
     # Save and check content = "NEWoriginal"
     keys = b"dduiNEW\x1b\x12:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "NEW" in content, f"Expected 'NEW' in content, got: {content!r}"
@@ -1239,7 +1239,7 @@ def test_undo_at_oldest():
     path = write_temp("test\n")
     # Just press u with no edits — should show message and not crash
     keys = b"uu:q\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     print("  PASS: undo at oldest")
@@ -1250,7 +1250,7 @@ def test_G_goes_to_last_line():
     """G moves cursor to last line."""
     path = write_temp("line1\nline2\nline3\nline4\nline5\n")
     keys = b"GA$$$\x1b:wq\r"  # G goes to last line, A appends $$$
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "line5$$$" in content, f"G did not reach last line: {content!r}"
@@ -1260,7 +1260,7 @@ def test_gg_goes_to_first_line():
     """gg moves cursor to first line."""
     path = write_temp("line1\nline2\nline3\nline4\n")
     keys = b"GggA***\x1b:wq\r"  # G to last, gg to first, A appends
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "line1***" in content, f"gg did not reach first line: {content!r}"
@@ -1270,7 +1270,7 @@ def test_count_G():
     """3G goes to line 3."""
     path = write_temp("line1\nline2\nline3\nline4\n")
     keys = b"3GA@@@\x1b:wq\r"  # 3G to line 3, A appends
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "line3@@@" in content, f"3G did not go to line 3: {content!r}"
@@ -1280,7 +1280,7 @@ def test_zero_goes_to_column_zero():
     """0 moves cursor to column 0."""
     path = write_temp("hello world\n")
     keys = b"llll0i^\x1b:wq\r"  # llll to go right, 0 to col 0, i^ to insert
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.startswith("^hello"), f"0 did not go to col 0: {content!r}"
@@ -1290,7 +1290,7 @@ def test_dgg_deletes_to_first():
     """dgg from line 3 deletes lines 1-3."""
     path = write_temp("line1\nline2\nline3\nline4\nline5\n")
     keys = b"jjdgg:wq\r"  # go to line 3, dgg deletes lines 1-3
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "line1" not in content and "line2" not in content and "line3" not in content
@@ -1303,7 +1303,7 @@ def test_f_motion():
     """fx finds character x on current line."""
     path = write_temp("hello world\n")
     keys = b"fwi@\x1b:wq\r"  # fw finds 'w', i@ inserts before it
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "hello @world" in content, f"f motion failed: {content!r}"
@@ -1313,7 +1313,7 @@ def test_t_motion():
     """tx moves to character before x."""
     path = write_temp("hello world\n")
     keys = b"twi@\x1b:wq\r"  # tw goes before 'w', i@ inserts
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "hello@ world" in content, f"t motion failed: {content!r}"
@@ -1323,7 +1323,7 @@ def test_F_motion():
     """Fx finds character backward."""
     path = write_temp("hello world\n")
     keys = b"fwFli@\x1b:wq\r"  # fw to 'w' (pos 6), Fl finds 'l' backward (pos 3)
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "hel@lo" in content, f"F motion failed: {content!r}"
@@ -1333,7 +1333,7 @@ def test_semicolon_repeats_find():
     """Semicolon repeats last f/t find."""
     path = write_temp("abababab\n")
     keys = b"fa;i@\x1b:wq\r"  # fa finds 'a' at pos 2, ; repeats to pos 4
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.startswith("abab@a"), f"; repeat failed: {content!r}"
@@ -1343,7 +1343,7 @@ def test_semicolon_repeats_t_motion():
     """Semicolon repeats last t/T find correctly."""
     path = write_temp("axaxaxax\n")
     # tx goes before first x (index 0), ; should go before second x (index 2)
-    screen, content, code = run_ved(b"tx;i@\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"tx;i@\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.startswith("ax@ax"), f"; repeat for t failed: {content!r}"
@@ -1353,7 +1353,7 @@ def test_semicolon_repeats_T_motion():
     """Semicolon also repeats backward till (T)."""
     path = write_temp("xaxaxaxa\n")
     # $ to EOL, Tx goes after x at 6 (cx=7), ; should go after x at 4 (cx=5)
-    screen, content, code = run_ved(b"$Tx;i@\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"$Tx;i@\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.startswith("xaxax@ax"), f"; repeat for T failed: {content!r}"
@@ -1363,7 +1363,7 @@ def test_comma_reverses_find():
     """Comma reverses last f/t find."""
     path = write_temp("abababab\n")
     keys = b"fa;;,i@\x1b:wq\r"  # fa, ;;, , reverses
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "@a" in content, f", reverse find failed: {content!r}"
@@ -1373,7 +1373,7 @@ def test_dfl_deletes_to_char():
     """dfl deletes from cursor to 'l' inclusive."""
     path = write_temp("hello world\n")
     keys = b"dfl:wq\r"  # delete from cursor through 'l'
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.startswith("lo world"), f"df failed: {content!r}"
@@ -1385,7 +1385,7 @@ def test_indent_line():
     """>> indents current line by 4 spaces."""
     path = write_temp("hello\nworld\n")
     keys = b">>:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.split("\n")
@@ -1397,7 +1397,7 @@ def test_dedent_line():
     """<< removes up to 4 leading spaces."""
     path = write_temp("    hello\nworld\n")
     keys = b"<<:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.split("\n")
@@ -1408,7 +1408,7 @@ def test_count_indent():
     """3>> indents 3 lines."""
     path = write_temp("a\nb\nc\nd\n")
     keys = b"3>>:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.split("\n")
@@ -1424,7 +1424,7 @@ def test_autoindent_on_enter():
     """Enter in insert mode copies indentation from current line."""
     path = write_temp("    hello\n")
     keys = b"A\rworld\x1b:wq\r"  # A to end, Enter, type 'world'
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.split("\n")
@@ -1435,7 +1435,7 @@ def test_autoindent_disabled():
     """:set noautoindent disables autoindent."""
     path = write_temp("    hello\n")
     keys = b":set noautoindent\rA\rworld\x1b:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.split("\n")
@@ -1448,7 +1448,7 @@ def test_percent_match_paren():
     """% jumps to matching parenthesis."""
     path = write_temp("(hello world)\n")
     keys = b"%i@\x1b:wq\r"  # % from ( jumps to ), i@ inserts before )
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert content.startswith("(hello world@)"), f"% failed: {content!r}"
@@ -1458,7 +1458,7 @@ def test_percent_match_brace():
     """% works with braces across lines."""
     path = write_temp("{\nhello\n}\n")
     keys = b"%A@\x1b:wq\r"  # % on { goes to }, A@ appends
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "}@" in content, f"% brace failed: {content!r}"
@@ -1470,7 +1470,7 @@ def test_o_opens_below():
     """o opens new line below and enters insert mode."""
     path = write_temp("line1\nline3\n")
     keys = b"oline2\x1b:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.split("\n")
@@ -1483,7 +1483,7 @@ def test_O_opens_above():
     """O opens new line above and enters insert mode."""
     path = write_temp("line2\nline3\n")
     keys = b"Oline1\x1b:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.split("\n")
@@ -1495,7 +1495,7 @@ def test_o_autoindent():
     """o with autoindent copies leading whitespace."""
     path = write_temp("    indented\n")
     keys = b"ohello\x1b:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.split("\n")
@@ -1508,7 +1508,7 @@ def test_diw_deletes_word():
     """diw deletes the word under cursor."""
     path = write_temp("hello world test\n")
     keys = b"wdiw:wq\r"  # w to 'world', diw deletes it
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "world" not in content, f"diw failed: {content!r}"
@@ -1518,7 +1518,7 @@ def test_daw_deletes_word_with_space():
     """daw deletes word and trailing space."""
     path = write_temp("hello world test\n")
     keys = b"wdaw:wq\r"  # w to 'world', daw includes space
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "world" not in content, f"daw failed: {content!r}"
@@ -1530,7 +1530,7 @@ def test_ciw_changes_word():
     """ciw replaces the word under cursor."""
     path = write_temp("hello world test\n")
     keys = b"wciwNEW\x1b:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "NEW" in content, f"ciw failed: {content!r}"
@@ -1543,7 +1543,7 @@ def test_di_paren():
     """di( deletes inside parentheses."""
     path = write_temp("call(arg1, arg2)\n")
     keys = b"f(ldi(:wq\r"  # f( to '(', l inside, di( deletes inner
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "call()" in content, f"di( failed: {content!r}"
@@ -1553,7 +1553,7 @@ def test_da_bracket():
     """da[ deletes including brackets."""
     path = write_temp("arr[1, 2, 3]end\n")
     keys = b"f[lda[:wq\r"  # f[ to '[', l inside, da[ deletes all
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "[" not in content, f"da[ failed: {content!r}"
@@ -1564,7 +1564,7 @@ def test_di_quote():
     """di\" deletes inside double quotes."""
     path = write_temp('say "hello world" ok\n')
     keys = b'fhdi":wq\r'  # fh inside quotes, di" deletes inside
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert 'say "" ok' in content, f'di" failed: {content!r}'
@@ -1576,7 +1576,7 @@ def test_gcc_comments_line():
     """gcc toggles comment on current line."""
     path = write_temp("hello\nworld\n")
     keys = b"gcc:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.split("\n")
@@ -1588,7 +1588,7 @@ def test_gcc_uncomments_line():
     """gcc uncomments an already commented line."""
     path = write_temp("# hello\nworld\n")
     keys = b"gcc:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.split("\n")
@@ -1599,7 +1599,7 @@ def test_visual_gc():
     """Visual mode gc toggles comments on selection."""
     path = write_temp("line1\nline2\nline3\n")
     keys = b"Vjgc:wq\r"  # V, j to select 2 lines, gc to toggle
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.split("\n")
@@ -1612,7 +1612,7 @@ def test_set_comment_char():
     """:set comment=// changes comment character."""
     path = write_temp("hello\n")
     keys = b":set comment=//\rgcc:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.split("\n")
@@ -1625,7 +1625,7 @@ def test_dot_repeat_dd():
     """. repeats dd."""
     path = write_temp("line1\nline2\nline3\nline4\n")
     keys = b"dd.:wq\r"  # dd deletes line1, . repeats to delete line2
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "line1" not in content and "line2" not in content
@@ -1636,7 +1636,7 @@ def test_dot_repeat_insert():
     """. repeats insert action."""
     path = write_temp("aaa\nbbb\nccc\n")
     keys = b"A!!!\x1bj.:wq\r"  # A!!!<Esc> on line1, j, . on line2
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "aaa!!!" in content, f"dot insert failed: {content!r}"
@@ -1647,7 +1647,7 @@ def test_dot_repeat_indent():
     """. repeats >>."""
     path = write_temp("hello\nworld\n")
     keys = b">>j.:wq\r"  # >> indents line1, j moves down, . repeats
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     lines = content.split("\n")
@@ -1662,7 +1662,7 @@ def test_read_file():
     src = write_temp("inserted line\n")
     path = write_temp("original\n")
     keys = f":read {src}\r:wq\r".encode()
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(src)
     os.unlink(path)
     assert code == 0
@@ -1676,7 +1676,7 @@ def test_read_command():
     """:read !echo inserts command output below cursor."""
     path = write_temp("original\n")
     keys = b":read !echo hello_from_cmd\r:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "hello_from_cmd" in content, f":read ! failed: {content!r}"
@@ -1686,7 +1686,7 @@ def test_bang_command():
     """:! runs a shell command and shows output."""
     path = write_temp("test\n")
     keys = b":! echo hello_bang\r:q\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert "hello_bang" in screen, f":! failed: {screen[-500:]}"
@@ -1699,7 +1699,7 @@ def test_multi_file_argv():
     p1 = write_temp("file one\n")
     p2 = write_temp("file two\n")
     # Open with two files, check first visible, switch to second, quit all
-    screen, _, code = run_ved(b":n\r:qa\r", file_paths=[p1, p2])
+    screen, _, code = run_vig(b":n\r:qa\r", file_paths=[p1, p2])
     os.unlink(p1)
     os.unlink(p2)
     assert code == 0
@@ -1713,7 +1713,7 @@ def test_next_prev_buffer():
     p2 = write_temp("beta\n")
     p3 = write_temp("gamma\n")
     # Open 3 files, :n twice to get to buffer 3, :p to go back to 2, then :qa
-    screen, _, code = run_ved(b":n\r:n\r:p\r:qa\r", file_paths=[p1, p2, p3])
+    screen, _, code = run_vig(b":n\r:n\r:p\r:qa\r", file_paths=[p1, p2, p3])
     os.unlink(p1)
     os.unlink(p2)
     os.unlink(p3)
@@ -1727,7 +1727,7 @@ def test_ls_lists_buffers():
     p1 = write_temp("aaa\n")
     p2 = write_temp("bbb\n")
     # Open two files, :ls, then :qa
-    screen, _, code = run_ved(b":ls\r:qa\r", file_paths=[p1, p2])
+    screen, _, code = run_vig(b":ls\r:qa\r", file_paths=[p1, p2])
     os.unlink(p1)
     os.unlink(p2)
     assert code == 0
@@ -1741,7 +1741,7 @@ def test_quit_closes_buffer():
     p1 = write_temp("first\n")
     p2 = write_temp("second\n")
     # Open two files, :q closes first, then :q exits
-    screen, _, code = run_ved(b":q\r:q\r", file_paths=[p1, p2])
+    screen, _, code = run_vig(b":q\r:q\r", file_paths=[p1, p2])
     os.unlink(p1)
     os.unlink(p2)
     assert code == 0
@@ -1752,7 +1752,7 @@ def test_e_adds_buffer():
     p1 = write_temp("original\n")
     p2 = write_temp("added\n")
     # Open p1, :e p2 adds it, now we need :q twice
-    screen, _, code = run_ved(f":e {p2}\r:q\r:q\r".encode(), file_path=p1)
+    screen, _, code = run_vig(f":e {p2}\r:q\r:q\r".encode(), file_path=p1)
     os.unlink(p1)
     os.unlink(p2)
     assert code == 0
@@ -1765,7 +1765,7 @@ def test_bdelete_removes_buffer():
     p1 = write_temp("keep\n")
     p2 = write_temp("remove\n")
     # Open two files, :n to go to second, :k deletes it, :q exits
-    screen, _, code = run_ved(b":n\r:k\r:q\r", file_paths=[p1, p2])
+    screen, _, code = run_vig(b":n\r:k\r:q\r", file_paths=[p1, p2])
     os.unlink(p1)
     os.unlink(p2)
     assert code == 0
@@ -1776,7 +1776,7 @@ def test_bdelete_dirty_blocked():
     p1 = write_temp("clean\n")
     p2 = write_temp("dirty\n")
     # Open two files, :n to second, make it dirty, try :k (should fail), :k! forces it
-    screen, _, code = run_ved(b":n\riX\x1b:k\r:k!\r:q\r", file_paths=[p1, p2])
+    screen, _, code = run_vig(b":n\riX\x1b:k\r:k!\r:q\r", file_paths=[p1, p2])
     os.unlink(p1)
     os.unlink(p2)
     assert code == 0
@@ -1786,7 +1786,7 @@ def test_bdelete_dirty_blocked():
 def test_bdelete_last_refused():
     """:k refuses to delete the last buffer."""
     path = write_temp("only\n")
-    screen, _, code = run_ved(b":k\r:q\r", file_path=path)
+    screen, _, code = run_vig(b":k\r:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "Cannot delete last buffer" in screen, f":k should refuse last: {screen[-500:]}"
@@ -1797,7 +1797,7 @@ def test_qa_checks_all_dirty():
     p1 = write_temp("clean\n")
     p2 = write_temp("dirty\n")
     # Open two files, :n to second, make it dirty, :p back, :qa should fail
-    screen, _, code = run_ved(b":n\riX\x1b:p\r:qa\r:qa!\r", file_paths=[p1, p2])
+    screen, _, code = run_vig(b":n\riX\x1b:p\r:qa\r:qa!\r", file_paths=[p1, p2])
     os.unlink(p1)
     os.unlink(p2)
     assert code == 0
@@ -1809,7 +1809,7 @@ def test_wq_closes_buffer():
     p1 = write_temp("one\n")
     p2 = write_temp("two\n")
     # Open two files, :wq writes and closes first, :q exits second
-    screen, _, code = run_ved(b":wq\r:q\r", file_paths=[p1, p2])
+    screen, _, code = run_vig(b":wq\r:q\r", file_paths=[p1, p2])
     os.unlink(p1)
     os.unlink(p2)
     assert code == 0
@@ -1820,7 +1820,7 @@ def test_wq_closes_buffer():
 def test_x_deletes_char():
     """x deletes character under cursor."""
     path = write_temp("hello\n")
-    screen, content, code = run_ved(b"x:wq\r", file_path=path)
+    screen, content, code = run_vig(b"x:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "ello\n", f"Expected 'ello\\n', got {content!r}"
@@ -1829,7 +1829,7 @@ def test_x_deletes_char():
 def test_x_with_count():
     """3x deletes 3 characters."""
     path = write_temp("abcdef\n")
-    screen, content, code = run_ved(b"3x:wq\r", file_path=path)
+    screen, content, code = run_vig(b"3x:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "def\n", f"Expected 'def\\n', got {content!r}"
@@ -1839,7 +1839,7 @@ def test_X_deletes_before():
     """X deletes character before cursor."""
     path = write_temp("hello\n")
     # Move to position 2 (on 'l'), then X deletes 'e'
-    screen, content, code = run_ved(b"llX:wq\r", file_path=path)
+    screen, content, code = run_vig(b"llX:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "hllo\n", f"Expected 'hllo\\n', got {content!r}"
@@ -1850,7 +1850,7 @@ def test_space_k_deletes_buffer():
     p1 = write_temp("keep\n")
     p2 = write_temp("remove\n")
     # Open two files, :n to second, <space>k deletes it, :q exits
-    screen, _, code = run_ved(b":n\r k:q\r", file_paths=[p1, p2])
+    screen, _, code = run_vig(b":n\r k:q\r", file_paths=[p1, p2])
     os.unlink(p1)
     os.unlink(p2)
     assert code == 0
@@ -1861,7 +1861,7 @@ def test_space_k_deletes_buffer():
 def test_caret_motion_first_nonblank():
     """^ moves to first non-blank character."""
     path = write_temp("    hello\n")
-    screen, content, code = run_ved(b"$i!\x1b^iX\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"$i!\x1b^iX\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "    Xhello!\n", f"Expected first-nonblank insert, got {content!r}"
@@ -1871,7 +1871,7 @@ def test_home_end_normal_mode():
     """Home/End work as start/end motions in Normal mode."""
     path = write_temp("hello\n")
     # End then append !, Home then insert ^
-    screen, content, code = run_ved(b"\x1b[Fi!\x1b\x1b[Hi^\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"\x1b[Fi!\x1b\x1b[Hi^\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "^hello!\n", f"Expected '^hello!', got {content!r}"
@@ -1880,7 +1880,7 @@ def test_home_end_normal_mode():
 def test_home_end_ss3_sequences():
     """Home/End also work with SS3 escape sequences (ESC O H/F)."""
     path = write_temp("hello\n")
-    screen, content, code = run_ved(b"\x1bOFi!\x1b\x1bOHi^\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"\x1bOFi!\x1b\x1bOHi^\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "^hello!\n", f"Expected '^hello!' with SS3 Home/End, got {content!r}"
@@ -1889,7 +1889,7 @@ def test_home_end_ss3_sequences():
 def test_home_end_csi_tilde_sequences():
     """Home/End also work with CSI tilde sequences (ESC [1~/[4~)."""
     path = write_temp("hello\n")
-    screen, content, code = run_ved(b"\x1b[4~i!\x1b\x1b[1~i^\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"\x1b[4~i!\x1b\x1b[1~i^\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "^hello!\n", f"Expected '^hello!' with CSI tilde Home/End, got {content!r}"
@@ -1900,7 +1900,7 @@ def test_insert_home_end_tab():
     path = write_temp("abc\n")
     # i TAB X HOME ^ END ! ESC
     keys = b"i\tX\x1b[H^\x1b[F!\x1b:wq\r"
-    screen, content, code = run_ved(keys, file_path=path)
+    screen, content, code = run_vig(keys, file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "^    Xabc!\n", f"Expected '^    Xabc!', got {content!r}"
@@ -1909,7 +1909,7 @@ def test_insert_home_end_tab():
 def test_insert_delete_key():
     """Insert mode Delete removes character under cursor."""
     path = write_temp("abc\n")
-    screen, content, code = run_ved(b"i\x1b[C\x1b[3~\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"i\x1b[C\x1b[3~\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "ac\n", f"Expected 'ac', got {content!r}"
@@ -1920,7 +1920,7 @@ def test_insert_delete_key():
 def test_J_joins_lines():
     """J joins current line with the next line."""
     path = write_temp("hello\nworld\n")
-    screen, content, code = run_ved(b"J:wq\r", file_path=path)
+    screen, content, code = run_vig(b"J:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "hello world\n", f"Expected joined line, got {content!r}"
@@ -1929,7 +1929,7 @@ def test_J_joins_lines():
 def test_count_J_joins_multiple_lines():
     """Counted J joins N lines into one."""
     path = write_temp("a\nb\nc\n")
-    screen, content, code = run_ved(b"3J:wq\r", file_path=path)
+    screen, content, code = run_vig(b"3J:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "a b c\n", f"Expected 'a b c', got {content!r}"
@@ -1938,7 +1938,7 @@ def test_count_J_joins_multiple_lines():
 def test_visual_dollar_delete_line_tail():
     """Visual mode supports $ motion for selection expansion."""
     path = write_temp("hello\n")
-    screen, content, code = run_ved(b"v$d:wq\r", file_path=path)
+    screen, content, code = run_vig(b"v$d:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "\n", f"Expected empty line after visual $ delete, got {content!r}"
@@ -1947,7 +1947,7 @@ def test_visual_dollar_delete_line_tail():
 def test_visual_caret_delete_to_nonblank():
     """Visual mode supports ^ motion for selection expansion."""
     path = write_temp("  hello!\n")
-    screen, content, code = run_ved(b"$v^d:wq\r", file_path=path)
+    screen, content, code = run_vig(b"$v^d:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "  \n", f"Expected leading spaces only, got {content!r}"
@@ -1957,7 +1957,7 @@ def test_visual_caret_delete_to_nonblank():
 
 def test_edit_relative_to_current_buffer_dir():
     """:e relative paths resolve from current buffer directory."""
-    tmp = tempfile.mkdtemp(prefix="ved_p32_")
+    tmp = tempfile.mkdtemp(prefix="vig_p32_")
     main_path = os.path.join(tmp, "main.txt")
     other_path = os.path.join(tmp, "other.txt")
     with open(main_path, "w") as f:
@@ -1966,7 +1966,7 @@ def test_edit_relative_to_current_buffer_dir():
         f.write("other\n")
 
     keys = b":e other.txt\rA!\x1b:wq\r:q\r"
-    screen, _, code = run_ved(keys, file_path=main_path)
+    screen, _, code = run_vig(keys, file_path=main_path)
     assert code == 0
     with open(other_path, "r") as f:
         content = f.read()
@@ -1978,13 +1978,13 @@ def test_edit_relative_to_current_buffer_dir():
 
 def test_write_relative_to_current_buffer_dir():
     """:w relative paths write under current buffer directory."""
-    tmp = tempfile.mkdtemp(prefix="ved_p32_")
+    tmp = tempfile.mkdtemp(prefix="vig_p32_")
     main_path = os.path.join(tmp, "main.txt")
     out_path = os.path.join(tmp, "out.txt")
     with open(main_path, "w") as f:
         f.write("abc\n")
 
-    screen, _, code = run_ved(b"iX\x1b:w out.txt\r:q\r", file_path=main_path)
+    screen, _, code = run_vig(b"iX\x1b:w out.txt\r:q\r", file_path=main_path)
     assert code == 0
     with open(out_path, "r") as f:
         content = f.read()
@@ -1997,11 +1997,11 @@ def test_write_relative_to_current_buffer_dir():
 def test_argv_expands_tilde_path():
     """Command-line argv paths support ~ expansion."""
     home = os.path.expanduser("~")
-    fd, abs_path = tempfile.mkstemp(prefix="ved_p32_", suffix=".txt", dir=home)
+    fd, abs_path = tempfile.mkstemp(prefix="vig_p32_", suffix=".txt", dir=home)
     with os.fdopen(fd, "w") as f:
         f.write("homefile\n")
     tilde_path = "~/" + os.path.basename(abs_path)
-    screen, _, code = run_ved(b":q\r", file_paths=[tilde_path])
+    screen, _, code = run_vig(b":q\r", file_paths=[tilde_path])
     os.unlink(abs_path)
     assert code == 0
     assert "homefile" in screen, "Expected file opened from ~ path"
@@ -2009,13 +2009,13 @@ def test_argv_expands_tilde_path():
 
 def test_write_path_error_shows_message_no_crash():
     """:w to invalid target reports error instead of crashing."""
-    tmp = tempfile.mkdtemp(prefix="ved_p32_")
+    tmp = tempfile.mkdtemp(prefix="vig_p32_")
     main_path = os.path.join(tmp, "main.txt")
     with open(main_path, "w") as f:
         f.write("abc\n")
 
     keys = f":w {tmp}\r:q!\r".encode()
-    screen, _, code = run_ved(keys, file_path=main_path)
+    screen, _, code = run_vig(keys, file_path=main_path)
     os.unlink(main_path)
     os.rmdir(tmp)
     assert code == 0
@@ -2028,7 +2028,7 @@ def test_ctrl_d_moves_half_page_down():
     """Ctrl-D moves cursor down by half a screen."""
     content = "\n".join(f"line{i}" for i in range(1, 41)) + "\n"
     path = write_temp(content)
-    screen, out, code = run_ved(b"\x04A!\x1b:wq\r", file_path=path)
+    screen, out, code = run_vig(b"\x04A!\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "line12!" in out, f"Expected edit on line12 after Ctrl-D, got {out!r}"
@@ -2039,7 +2039,7 @@ def test_ctrl_u_moves_half_page_up():
     content = "\n".join(f"line{i}" for i in range(1, 41)) + "\n"
     path = write_temp(content)
     # G to last line (40), Ctrl-U goes up 11 lines -> line29
-    screen, out, code = run_ved(b"G\x15A!\x1b:wq\r", file_path=path)
+    screen, out, code = run_vig(b"G\x15A!\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "line29!" in out, f"Expected edit on line29 after Ctrl-U, got {out!r}"
@@ -2050,7 +2050,7 @@ def test_ctrl_u_moves_half_page_up():
 def test_set_scrolloff_option():
     """:set scrolloff=N sets option and reports value."""
     path = write_temp("a\n")
-    screen, _, code = run_ved(b":set scrolloff=3\r:q\r", file_path=path)
+    screen, _, code = run_vig(b":set scrolloff=3\r:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "scrolloff=3" in screen, "Expected scrolloff status message"
@@ -2061,7 +2061,7 @@ def test_scrolloff_keeps_margin_near_bottom():
     content = "\n".join(f"ROW{i:02d}" for i in range(1, 41)) + "\n"
     path = write_temp(content)
     # With rows=24 => content rows=22; at 21j with scrolloff=3 top should be ROW04
-    screen, _, code = run_ved(b":set scrolloff=3\r21j:q\r", file_path=path)
+    screen, _, code = run_vig(b":set scrolloff=3\r21j:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     frame = last_frame(screen)
@@ -2074,7 +2074,7 @@ def test_scrolloff_keeps_margin_near_bottom():
 def test_set_clipboard_mode_options():
     """:set clipboard=<mode> accepts osc52/auto/off."""
     path = write_temp("a\n")
-    screen, _, code = run_ved(b":set clipboard=auto\r:set clipboard=off\r:q\r", file_path=path)
+    screen, _, code = run_vig(b":set clipboard=auto\r:set clipboard=off\r:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "clipboard=auto" in screen, "Expected clipboard=auto message"
@@ -2084,7 +2084,7 @@ def test_set_clipboard_mode_options():
 def test_set_clipboard_invalid_value():
     """:set clipboard rejects invalid values."""
     path = write_temp("a\n")
-    screen, _, code = run_ved(b":set clipboard=bad\r:q\r", file_path=path)
+    screen, _, code = run_vig(b":set clipboard=bad\r:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "clipboard must be osc52, auto, or off" in screen
@@ -2093,7 +2093,7 @@ def test_set_clipboard_invalid_value():
 def test_clipboard_off_disables_osc52_output():
     """clipboard=off avoids emitting OSC 52 copy sequence on yank."""
     path = write_temp("abc\n")
-    screen, _, code = run_ved(b":set clipboard=off\ryy:q!\r", file_path=path)
+    screen, _, code = run_vig(b":set clipboard=off\ryy:q!\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "\x1b]52;c;" not in screen, "OSC52 should not be emitted when clipboard=off"
@@ -2104,7 +2104,7 @@ def test_clipboard_off_disables_osc52_output():
 def test_bang_command_without_space():
     """:!command works without a space after !."""
     path = write_temp("test\n")
-    screen, _, code = run_ved(b":!echo nospace_bang\r:q\r", file_path=path)
+    screen, _, code = run_vig(b":!echo nospace_bang\r:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "nospace_bang" in screen, f":!cmd failed: {screen[-500:]}"
@@ -2113,7 +2113,7 @@ def test_bang_command_without_space():
 def test_bang_multiline_output_compact():
     """:! multiline output is compacted onto the message bar."""
     path = write_temp("test\n")
-    screen, _, code = run_ved(b":!printf 'aa\\nbb\\n'\r:q\r", file_path=path)
+    screen, _, code = run_vig(b":!printf 'aa\\nbb\\n'\r:q\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "aa | bb" in screen, f"Expected compact multiline output: {screen[-500:]}"
@@ -2122,7 +2122,7 @@ def test_bang_multiline_output_compact():
 def test_normal_backspace_deletes_left():
     """Normal-mode Backspace deletes char to the left of cursor."""
     path = write_temp("abc\n")
-    screen, content, code = run_ved(b"$\x7f:wq\r", file_path=path)
+    screen, content, code = run_vig(b"$\x7f:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "ab\n", f"Backspace delete failed: {content!r}"
@@ -2131,7 +2131,7 @@ def test_normal_backspace_deletes_left():
 def test_r_replaces_character():
     """Normal-mode r replaces character under cursor."""
     path = write_temp("abc\n")
-    screen, content, code = run_ved(b"lrZ:wq\r", file_path=path)
+    screen, content, code = run_vig(b"lrZ:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "aZc\n", f"r replace failed: {content!r}"
@@ -2140,7 +2140,7 @@ def test_r_replaces_character():
 def test_s_substitutes_character():
     """Normal-mode s deletes char under cursor and enters insert."""
     path = write_temp("abc\n")
-    screen, content, code = run_ved(b"lsXY\x1b:wq\r", file_path=path)
+    screen, content, code = run_vig(b"lsXY\x1b:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "aXYc\n", f"s substitute failed: {content!r}"
@@ -2149,13 +2149,13 @@ def test_s_substitutes_character():
 def test_dw_at_eol_does_not_join_lines():
     """dw from EOL positions does not merge the next line."""
     path = write_temp("abc\ndef\n")
-    screen, content, code = run_ved(b"lldw:wq\r", file_path=path)
+    screen, content, code = run_vig(b"lldw:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "ab\ndef\n", f"dw on last char joined lines: {content!r}"
 
     path = write_temp("abc\ndef\n")
-    screen, content, code = run_ved(b"$dw:wq\r", file_path=path)
+    screen, content, code = run_vig(b"$dw:wq\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "abc\ndef\n", f"dw one-past-EOL joined lines: {content!r}"
@@ -2177,8 +2177,8 @@ def test_ctrl_z_stops_process():
         os.dup2(slave, 2)
         if slave > 2:
             os.close(slave)
-        os.environ["VED_NO_CONFIG"] = "1"
-        os.execvp(sys.executable, [sys.executable, VED, path])
+        os.environ["VIG_NO_CONFIG"] = "1"
+        os.execvp(sys.executable, [sys.executable, VIG, path])
         os._exit(1)
     os.close(slave)
     output = b""
@@ -2198,7 +2198,7 @@ def test_ctrl_z_stops_process():
             if wpid == pid and os.WIFSTOPPED(status):
                 stopped = True
                 break
-        assert stopped, "Ctrl-Z did not stop ved"
+        assert stopped, "Ctrl-Z did not stop vig"
         assert b"\x1b[24;1H" in output, "Ctrl-Z did not move cursor to bottom"
     finally:
         try:
@@ -2213,7 +2213,7 @@ def test_ctrl_z_stops_process():
 def test_edit_directory_shows_error_no_crash():
     """:e <directory> reports an error instead of crashing."""
     path = write_temp("abc\n")
-    screen, _, code = run_ved(f":e {os.getcwd()}\r:q\r".encode(), file_path=path)
+    screen, _, code = run_vig(f":e {os.getcwd()}\r:q\r".encode(), file_path=path)
     os.unlink(path)
     assert code == 0
     assert "Cannot edit directory" in screen, f"Expected directory error: {screen[-500:]}"
@@ -2222,7 +2222,7 @@ def test_edit_directory_shows_error_no_crash():
 def test_insert_long_line_hscrolls_at_right_edge():
     """In nowrap mode, the window scrolls left to keep cursor visible."""
     path = write_temp("")
-    screen, _, code = run_ved(b"iabcdefghijklmnopqrstuvwxyz\x1b:q!\r", file_path=path, cols=20)
+    screen, _, code = run_vig(b"iabcdefghijklmnopqrstuvwxyz\x1b:q!\r", file_path=path, cols=20)
     os.unlink(path)
     assert code == 0
     frame = last_frame(screen)
@@ -2233,7 +2233,7 @@ def test_insert_long_line_hscrolls_at_right_edge():
 def test_hscroll_shifts_whole_window():
     """Horizontal scroll offset applies to all visible lines in nowrap mode."""
     path = write_temp("ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n")
-    screen, _, code = run_ved(b"$j:q\r", file_path=path, cols=20)
+    screen, _, code = run_vig(b"$j:q\r", file_path=path, cols=20)
     os.unlink(path)
     assert code == 0
     frame = last_frame(screen)
@@ -2247,7 +2247,7 @@ def test_hscroll_shifts_whole_window():
 def test_ctrl_c_ctrl_c_quit_all():
     """Ctrl-C Ctrl-C in Normal mode aliases :qall."""
     path = write_temp("abc\n")
-    screen, _, code = run_ved(b"\x03\x03", file_path=path)
+    screen, _, code = run_vig(b"\x03\x03", file_path=path)
     os.unlink(path)
     assert code == 0
     print("  PASS: Ctrl-C Ctrl-C quits all")
@@ -2255,7 +2255,7 @@ def test_ctrl_c_ctrl_c_quit_all():
 def test_ctrl_c_q_force_quit_all():
     """Ctrl-C q in Normal mode aliases :qall!."""
     path = write_temp("abc\n")
-    screen, content, code = run_ved(b"ix\x1b\x03q", file_path=path)
+    screen, content, code = run_vig(b"ix\x1b\x03q", file_path=path)
     os.unlink(path)
     assert code == 0
     assert content == "abc\n", f"Force quit should not write dirty buffer: {content!r}"
@@ -2264,7 +2264,7 @@ def test_ctrl_c_q_force_quit_all():
 def test_ctrl_c_ctrl_c_dirty_refuses():
     """Ctrl-C Ctrl-C refuses dirty buffers like :qall."""
     path = write_temp("abc\n")
-    screen, _, code = run_ved(b"ix\x1b\x03\x03:q!\r", file_path=path)
+    screen, _, code = run_vig(b"ix\x1b\x03\x03:q!\r", file_path=path)
     os.unlink(path)
     assert code == 0
     assert "unsaved changes" in screen, f"Expected dirty refusal: {screen[-500:]}"
@@ -2274,10 +2274,10 @@ def test_config_file_sets_options():
     """Startup config applies set-style options."""
     path = write_temp("alpha\nbeta\n")
     with tempfile.TemporaryDirectory() as home:
-        cfg = os.path.join(home, ".vedrc")
+        cfg = os.path.join(home, ".vigrc")
         with open(cfg, "w") as f:
             f.write("set number\nset relativenumber\nset scrolloff=2\n")
-        screen, _, code = run_ved(b":q\r", file_path=path, env={"HOME": home, "VED_NO_CONFIG": ""})
+        screen, _, code = run_vig(b":q\r", file_path=path, env={"HOME": home, "VIG_NO_CONFIG": ""})
     os.unlink(path)
     assert code == 0
     frame = last_frame(screen)
@@ -2292,7 +2292,7 @@ def test_rg_creates_quickfix_buffer():
         path = os.path.join(d, "a.txt")
         with open(path, "w") as f:
             f.write("alpha needle beta\n")
-        screen, _, code = run_ved(f":rg needle {d}\r:q!\r:q\r", file_path=path, timeout=4.0)
+        screen, _, code = run_vig(f":rg needle {d}\r:q!\r:q\r", file_path=path, timeout=4.0)
     assert code == 0
     assert "[quickfix]" in screen, f"Expected quickfix buffer: {screen[-800:]}"
     assert "a.txt:1:7:alpha needle beta" in screen, f"Expected rg result: {screen[-800:]}"
@@ -2304,7 +2304,7 @@ def test_space_o_opens_rg_location():
         path = os.path.join(d, "a.txt")
         with open(path, "w") as f:
             f.write("alpha needle beta\n")
-        screen, _, code = run_ved(f":rg needle {d}\r o\x03\x03", file_path=path, timeout=4.0)
+        screen, _, code = run_vig(f":rg needle {d}\r o\x03\x03", file_path=path, timeout=4.0)
     assert code == 0
     assert f"NORMAL | {path}" in screen, f"Expected original file active: {screen[-800:]}"
     assert "1:7" in screen, f"Expected cursor at rg column: {screen[-800:]}"
@@ -2314,7 +2314,7 @@ def test_space_buffer_keymaps_and_rghidden():
     """Leader buffer keymaps work and rghidden option is accepted."""
     p1 = write_temp("one\n")
     p2 = write_temp("two\n")
-    screen, _, code = run_ved(b":set rghidden\r n N\x03\x03", file_paths=[p1, p2], timeout=4.0)
+    screen, _, code = run_vig(b":set rghidden\r n N\x03\x03", file_paths=[p1, p2], timeout=4.0)
     os.unlink(p1)
     os.unlink(p2)
     assert code == 0

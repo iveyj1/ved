@@ -1,6 +1,6 @@
-# ved — Command Reference
+# vig — Command Reference
 
-ved is a compact, single-file, vi-style terminal editor. Runtime code lives in `ved.py`, uses Python stdlib only, and talks to the terminal with raw ANSI escape codes rather than curses.
+vig is a compact, single-file, vi-style terminal editor. Runtime code lives in `vig.py`, uses Python stdlib only, and talks to the terminal with raw ANSI escape codes rather than curses.
 
 **Modes:** NORMAL, INSERT, VISUAL, VISUAL LINE, COMMAND, SEARCH
 
@@ -129,8 +129,8 @@ Path semantics: `:e`/`:w` expand `~`; relative paths resolve from current buffer
 | Escape | return to Normal mode |
 
 ## Startup Config
-- Unless `VED_NO_CONFIG` is set, ved reads `~/.vedrc` then `$XDG_CONFIG_HOME/ved/config`.
-- `VED_CONFIG=/path/to/file` reads only that file.
+- Unless `VIG_NO_CONFIG` is set, vig reads `~/.vigrc` then `$XDG_CONFIG_HOME/vig/config`.
+- `VIG_CONFIG=/path/to/file` reads only that file.
 - Lines are simple set-style options: `set number`, `relativenumber`, `scrolloff=3`, etc.
 - Blank lines and lines starting with `#` are ignored.
 
@@ -139,6 +139,6 @@ Path semantics: `:e`/`:w` expand `~`; relative paths resolve from current buffer
 - Single `write()` render — no flicker
 - The visible window horizontally scrolls in nowrap mode to keep the cursor visible
 - SIGWINCH-aware terminal resize
-- Ctrl-Z moves the terminal cursor to the bottom line, suspends ved, and restores raw mode when foregrounded
+- Ctrl-Z moves the terminal cursor to the bottom line, suspends vig, and restores raw mode when foregrounded
 - Ctrl-C cancels pending input/state and returns to Normal mode; Normal-mode `Ctrl-C Ctrl-C` = `:qall`, `Ctrl-C q` = `:qall!`
 - Undo stack: 100 snapshot limit

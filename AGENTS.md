@@ -1,4 +1,4 @@
-# ved — Agent Guidance
+# vigor — Agent Guidance
 
 > Use `###` headings, **bold** for subheadings within sections, minimal dividers.
 > Keep paragraphs short. Prefer lists over prose where possible.
@@ -7,14 +7,14 @@
 
 ## Project Overview
 
-ved is a compact, single-file, vi-style terminal text editor written in Python. It uses raw ANSI escape codes for terminal interaction — no curses library and no third-party packages.
+vigor is a compact, single-file, vi-style terminal text editor written in Python. It uses raw ANSI escape codes for terminal interaction — no curses library and no third-party packages.
 
 The project goal is a practical, small editor that remains easy to inspect, run, and modify as one file. It is no longer a tiny minimal prototype; it intentionally includes common vi-style editing features while avoiding plugin systems, syntax highlighting, macros, multiple source modules, and external runtime dependencies.
 
 **Files**
 
-- `ved.py` — the entire editor (~2400 lines)
-- `test_ved.py` — PTY-based smoke tests (plain asserts, no framework, 182 test functions)
+- `vig.py` — the entire editor (~2400 lines)
+- `test_vig.py` — PTY-based smoke tests (plain asserts, no framework, 182 test functions)
 - `archive/PLAN.md` — retired original development plan, kept for history only
 - `AGENTS.md` — this document
 - `reference.md` — command reference
@@ -26,7 +26,7 @@ In this chat, I'll provide requirements for numbered development phases.  When e
 
 **Keep it compact.** Every feature and every line of code must justify its existence. If something can be left out without losing specified vi-style editing capability, leave it out.
 
-**One file.** The editor lives entirely in `ved.py`. Classes and functions are organized by visual section markers (`# ── Section ──`) rather than by module. This keeps the call graph obvious, searchable, and greppable.
+**One file.** The editor lives entirely in `vig.py`. Classes and functions are organized by visual section markers (`# ── Section ──`) rather than by module. This keeps the call graph obvious, searchable, and greppable.
 
 **Stdlib only.** Runtime code uses Python stdlib modules only: currently `sys`, `os`, `re`, `base64`, `termios`, `tty`, `atexit`, `signal`, `shutil`, `select`, `enum`, and local `subprocess` imports for shell/clipboard commands. No pip packages. No curses. Tests add PTY/tempfile/terminal-control helpers.
 
@@ -49,20 +49,20 @@ In this chat, I'll provide requirements for numbered development phases.  When e
 
 **Insert mode** — printable characters insert at cursor. Tab inserts 4 spaces. Enter splits the line (with autoindent, copies leading whitespace). Backspace deletes backward or joins lines. Delete removes the character under cursor. Arrow keys and Home/End move the cursor via `_exec_motion`, same as in Normal mode. Esc returns to NORMAL without moving the cursor.
 
-**Full terminal** — ved uses the entire terminal window. Content rows = terminal height minus 2 (status bar + command/message bar). Long lines are truncated by default and wrapped when `:set wrap` is enabled. In nowrap mode, the visible window horizontally scrolls as needed to keep the cursor visible.
+**Full terminal** — vigor uses the entire terminal window. Content rows = terminal height minus 2 (status bar + command/message bar). Long lines are truncated by default and wrapped when `:set wrap` is enabled. In nowrap mode, the visible window horizontally scrolls as needed to keep the cursor visible.
 
 
 ## Divergences from vi
 
-ved is vi-inspired, not vi-compatible. These differences are intentional:
+vigor is vi-inspired, not vi-compatible. These differences are intentional:
 
-**Esc from Insert keeps cursor in place.** vi moves left one column on Esc. ved does not. The cursor stays exactly where it was when Esc was pressed. This eliminates a common source of confusion and is the single most important divergence.
+**Esc from Insert keeps cursor in place.** vi moves left one column on Esc. vigor does not. The cursor stays exactly where it was when Esc was pressed. This eliminates a common source of confusion and is the single most important divergence.
 
-**Cursor past end-of-line is allowed in all modes.** vi clamps the cursor to the last character in Normal mode. ved allows the cursor on the position after the last character in every mode. This simplifies the clamping logic and makes cursor behavior consistent regardless of mode.
+**Cursor past end-of-line is allowed in all modes.** vi clamps the cursor to the last character in Normal mode. vigor allows the cursor on the position after the last character in every mode. This simplifies the clamping logic and makes cursor behavior consistent regardless of mode.
 
-**Single unnamed register, no macros.** ved has one unnamed register that holds the last deleted or yanked text. Clipboard copy mode is configurable via `:set clipboard=osc52|auto|off` (current default `osc52`). There are no named registers and no macros.
+**Single unnamed register, no macros.** vigor has one unnamed register that holds the last deleted or yanked text. Clipboard copy mode is configurable via `:set clipboard=osc52|auto|off` (current default `osc52`). There are no named registers and no macros.
 
-**Minimal ex commands.** vi has dozens of ex commands. ved supports only: new, edit, write, quit, wq, qa, next, prev, ls, k/bdelete, set, substitute, read, and bang. Abbreviations (`:e`, `:w`, `:q`, `:r`, `:n`, `:p`, `:k`) work. That's it.
+**Minimal ex commands.** vi has dozens of ex commands. vigor supports only: new, edit, write, quit, wq, qa, next, prev, ls, k/bdelete, set, substitute, read, and bang. Abbreviations (`:e`, `:w`, `:q`, `:r`, `:n`, `:p`, `:k`) work. That's it.
 
 
 ## Architecture
@@ -106,7 +106,7 @@ ved is vi-inspired, not vi-compatible. These differences are intentional:
 
 **Word motions** — characters are classified as word (`[a-zA-Z0-9_]`), punctuation, or space. Small word motions (`w b e`) treat punctuation runs as separate words. Big WORD motions (`W B E`) only split on whitespace. The algorithm uses `_forward`/`_backward` helpers to step through the buffer one character at a time, crossing line boundaries.
 
-**Startup config** — unless `VED_NO_CONFIG` is set, ved reads simple set-style config from `~/.vedrc` and `$XDG_CONFIG_HOME/ved/config` (later files override earlier ones). `VED_CONFIG=/path` reads only that file. Non-empty, non-comment lines may be `set <option>`, `:<set command>`, or just `<option>` using the same options accepted by `:set`.
+**Startup config** — unless `VIG_NO_CONFIG` is set, vigor reads simple set-style config from `~/.vigrc` and `$XDG_CONFIG_HOME/vig/config` (later files override earlier ones). `VIG_CONFIG=/path` reads only that file. Non-empty, non-comment lines may be `set <option>`, `:<set command>`, or just `<option>` using the same options accepted by `:set`. 
 
 **Count prefixes** — digits `1-9` (and subsequent `0-9`) accumulate in `self.count`. When a motion key arrives, it executes `max(count, 1)` times. Count resets to 0 after any non-digit key.
 
@@ -148,17 +148,17 @@ ved is vi-inspired, not vi-compatible. These differences are intentional:
 
 ## Testing
 
-**Harness** — each test forks a child process connected via `pty.openpty()`. The child exec's `python3 ved.py <file>`. The parent sends keystrokes byte-by-byte via `os.write()` and reads screen output via `os.read()`. No test framework — plain `assert`.
+**Harness** — each test forks a child process connected via `pty.openpty()`. The child exec's `python3 vig.py <file>`. The parent sends keystrokes byte-by-byte via `os.write()` and reads screen output via `os.read()`. No test framework — plain `assert`.
 
 **PTY sizing** — the harness sets the PTY window size to 24×80 via `TIOCSWINSZ` before forking. Resize tests change the size and send `SIGWINCH` to the child.
 
-**Timing** — a 300ms delay after fork lets ved start and render. Keys are sent one byte at a time with 30ms inter-key delay. CSI escape sequences (e.g. `\x1b[C` for Right arrow) are written atomically as a single chunk so the editor's 20ms `select` timeout decodes them correctly. Tests that send many keys (scroll test) use a longer timeout.
+**Timing** — a 300ms delay after fork lets vig start and render. Keys are sent one byte at a time with 30ms inter-key delay. CSI escape sequences (e.g. `\x1b[C` for Right arrow) are written atomically as a single chunk so the editor's 20ms `select` timeout decodes them correctly. Tests that send many keys (scroll test) use a longer timeout.
 
-**Phase-selective runs** — `test_ved.py` accepts optional phase selectors (e.g. `python3 test_ved.py 29` or `python3 test_ved.py 17 29`) to run only selected phases during development. Running with no arguments executes the full suite.
+**Phase-selective runs** — `test_vig.py` accepts optional phase selectors (e.g. `python3 test_vig.py 29` or `python3 test_vig.py 17 29`) to run only selected phases during development. Running with no arguments executes the full suite.
 
 **Assertions** — tests check exit code, file contents after `:wq`, and screen output for markers like reverse video escapes, filenames, or tilde rows. Screen output is decoded as UTF-8 with replacement.
 
-**Coverage** — 182 test functions organized into 38 phase groups, covering scaffold, editing, motions, visual mode, ex commands, wrapping, line numbers, undo/redo, operators, text objects, comments, dot repeat, shell/read commands, multi-buffer behavior, path handling, scrolloff, clipboard modes, small command/edit fixes, quit aliases, startup config, and ripgrep quickfix. Run with `python3 test_ved.py`.
+**Coverage** — 182 test functions organized into 38 phase groups, covering scaffold, editing, motions, visual mode, ex commands, wrapping, line numbers, undo/redo, operators, text objects, comments, dot repeat, shell/read commands, multi-buffer behavior, path handling, scrolloff, clipboard modes, small command/edit fixes, quit aliases, startup config, and ripgrep quickfix. Run with `python3 test_vig.py`.
 
 
 ## Workflow for AI Agents

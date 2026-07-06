@@ -1,6 +1,6 @@
-### ved.py cloc by commit
+### vig.py cloc by commit
 
-Generated with `perl ~/Downloads/cloc-2.10.pl ved.py` against each commit version of `ved.py`.
+Generated with `perl ~/Downloads/cloc-2.10.pl vig.py` against each commit version of `vig.py`.
 
 | Commit | Code | Blank | Comment | Subject |
 |---|---:|---:|---:|---|
@@ -50,3 +50,5 @@ Generated with `perl ~/Downloads/cloc-2.10.pl ved.py` against each commit versio
 | `7087262` | 2076 | 177 | 213 | Apply horizontal scroll to full window |
 | `9d1427f` | 2076 | 177 | 213 | install script, update todo.md |
 | `8184aac` | 2122 | 182 | 218 | Add quit aliases and startup config |
+| `b195bc5` | 2122 | 182 | 218 | add cloc script |
+| `4ce6d85` | 2245 | 186 | 222 | Add ripgrep quickfix buffer |

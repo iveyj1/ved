@@ -205,7 +205,7 @@ class Editor:
         self.running = True
         self.count = 0  # pending count prefix (0 = no count)
         self.pending_op = ""  # operator-pending: 'd', 'y', 'c', or ""
-        self.pending_count = 0  # count saved when entering operator-pending
+        self.pending_count = 0  # count saving when entering operator-pending
         self.pending_extra_n = None  # raw count for G/gg motions
         self.register = ""  # unnamed register (last yank/delete text)
         self.reg_linewise = False  # was last register content linewise?
@@ -244,7 +244,7 @@ class Editor:
     def _format_exception_report(self, exc):
         """Build a plain-text crash report for unexpected exceptions."""
         lines = [
-            "ved crash report",
+            "vig crash report",
             f"pid: {os.getpid()}",
             f"cwd: {os.getcwd()}",
             f"mode: {self.mode.value}",
@@ -267,9 +267,9 @@ class Editor:
         """Persist crash report to disk. Returns report path or None."""
         report = self._format_exception_report(exc)
         candidates = [
-            os.path.expanduser("~/.ved-crash.log"),
-            os.path.abspath(".ved-crash.log"),
-            "/tmp/ved-crash.log",
+            os.path.expanduser("~/.vig-crash.log"),
+            os.path.abspath(".vig-crash.log"),
+            "/tmp/vig-crash.log",
         ]
         for report_path in candidates:
             try:
@@ -302,20 +302,20 @@ class Editor:
 
     def _config_paths(self):
         """Return config files to read, in increasing precedence."""
-        explicit = os.environ.get("VED_CONFIG")
+        explicit = os.environ.get("VIG_CONFIG")
         if explicit:
             return [os.path.expanduser(explicit)]
         xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
         return [
-            os.path.expanduser("~/.vedrc"),
-            os.path.join(xdg, "ved", "config"),
+            os.path.expanduser("~/.vigrc"),
+            os.path.join(xdg, "vig", "config"),
         ]
 
     def _load_config(self):
-        """Load simple startup settings from ~/.vedrc or XDG config.
+        """Load simple startup settings from ~/.vigrc or XDG config.
         Each non-empty, non-comment line is either `set <option>` or `<option>`.
         """
-        if os.environ.get("VED_NO_CONFIG"):
+        if os.environ.get("VIG_NO_CONFIG"):
             return
         for path in self._config_paths():
             try:
@@ -337,7 +337,7 @@ class Editor:
                 self._exec_set(line)
 
     def _suspend(self):
-        """Suspend ved with Ctrl-Z, then restore raw mode on foreground."""
+        """Suspend vig with Ctrl-Z, then restore raw mode on foreground."""
         self.term.suspend_restore()
         sys.stdout.write(f"\x1b[{self.rows + 2};1H\x1b[K")
         sys.stdout.flush()
@@ -352,7 +352,7 @@ class Editor:
             os.kill(0, signal.SIGTSTP)
             signal.signal(signal.SIGTSTP, old_tstp)
         else:
-            # PTY tests often run ved as an orphaned process group, where
+            # PTY tests often run vig as an orphaned process group, where
             # SIGTSTP may be discarded. SIGSTOP keeps this path testable.
             os.kill(os.getpid(), signal.SIGSTOP)
         self.term.enter_raw()
@@ -744,7 +744,7 @@ class Editor:
         """Move to end of word (e) or WORD (E)."""
         classify = self._WORD_class if big else self._char_class
         line = self.buf.lines[self.cy]
-        # Cursor can sit one past EOL in ved. In this state, land on the
+        # Cursor can sit one past EOL in vig. In this state, land on the
         # last non-space token on the current line before crossing lines.
         if self.cx >= len(line):
             i = len(line) - 1
@@ -1945,7 +1945,7 @@ class Editor:
         if key == "ESC":
             # Save dot recording if active
             self._save_dot()
-            # Stay in place — ved divergence from vi
+            # Stay in place — vig divergence from vi
             self.mode = Mode.NORMAL
             self._clamp_cursor()
             return
@@ -2641,10 +2641,10 @@ def main():
     except Exception as e:
         report_path = ed._write_crash_report(e)
         if report_path:
-            sys.stderr.write(f"ved crashed: {e}\n")
+            sys.stderr.write(f"vig crashed: {e}\n")
             sys.stderr.write(f"crash report written to {report_path}\n")
         else:
-            sys.stderr.write(f"ved crashed: {e}\n")
+            sys.stderr.write(f"vig crashed: {e}\n")
             sys.stderr.write("failed to write crash report\n")
         sys.stderr.flush()
         raise
