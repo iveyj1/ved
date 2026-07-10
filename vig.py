@@ -218,6 +218,8 @@ class Editor:
         self.opt_scrolloff = 0  # :set scrolloff=N
         self.opt_clipboard = "osc52"  # :set clipboard=osc52|auto|off
         self.opt_yankflash = 300  # :set yankflash=N milliseconds
+        self.opt_delcopy = True  # :set delcopy/nodelcopy
+        self.opt_wrapmove = False  # :set wrapmove/nowrapmove
         self.opt_rghidden = False  # :set rghidden/norghidden
         self._insert_word_count = 0 # WORD boundaries since last snapshot
         self._insert_last_space = True  # for WORD boundary counting
@@ -872,13 +874,39 @@ class Editor:
         self.cx += 1
         self._clamp_cursor()
 
-    def _motion_j(self):
-        self.cy += 1
+    def _wrap_cols(self):
+        return max(1, self.cols - self._gutter_width())
+
+    def _motion_display_row(self, delta):
+        """Move by one displayed row when wrapmove is enabled."""
+        if not (self.opt_wrap and self.opt_wrapmove):
+            self.cy += delta
+            self._clamp_cursor()
+            return
+        cols = self._wrap_cols()
+        row = self.cx // cols
+        col = self.cx % cols
+        if delta > 0:
+            rows = self._line_screen_rows(self.cy)
+            if row + 1 < rows:
+                self.cx = min((row + 1) * cols + col, len(self.buf.lines[self.cy]))
+            elif self.cy < len(self.buf.lines) - 1:
+                self.cy += 1
+                self.cx = min(col, len(self.buf.lines[self.cy]))
+        else:
+            if row > 0:
+                self.cx = (row - 1) * cols + col
+            elif self.cy > 0:
+                self.cy -= 1
+                prev_rows = self._line_screen_rows(self.cy)
+                self.cx = min((prev_rows - 1) * cols + col, len(self.buf.lines[self.cy]))
         self._clamp_cursor()
 
+    def _motion_j(self):
+        self._motion_display_row(1)
+
     def _motion_k(self):
-        self.cy -= 1
-        self._clamp_cursor()
+        self._motion_display_row(-1)
 
     def _motion_G_count(self, n, extra_n):
         self.cy = min(n - 1, len(self.buf.lines) - 1) if extra_n is not None else len(self.buf.lines) - 1
@@ -1512,7 +1540,7 @@ class Editor:
 
     # ── Delete/Yank/Change helpers ─────────────────────────────────────
 
-    def _delete_range(self, sy, sx, ey, ex, linewise=False):
+    def _delete_range(self, sy, sx, ey, ex, linewise=False, copy=True):
         """Delete text from (sy,sx) to (ey,ex). Returns deleted text."""
         if not linewise and (sy, sx) == (ey, ex):
             return ""
@@ -1525,7 +1553,8 @@ class Editor:
                 self.buf.lines = [""]
             self.cy = min(sy, len(self.buf.lines) - 1)
             self.cx = 0
-            self._set_register(text, linewise=True)
+            if copy:
+                self._set_register(text, linewise=True)
         else:
             # Character-wise delete
             if sy == ey:
@@ -1544,7 +1573,8 @@ class Editor:
                 del self.buf.lines[sy + 1:ey + 1]
             self.cy = sy
             self.cx = sx
-            self._set_register(text, linewise=False)
+            if copy:
+                self._set_register(text, linewise=False)
         self.buf.dirty = True
         self._clamp_cursor()
         return text
@@ -1604,7 +1634,9 @@ class Editor:
             tx = len(self.buf.lines[sy])
 
         if op == "d":
-            self._delete_range(sy, sx, ty, tx, linewise)
+            self._delete_range(sy, sx, ty, tx, linewise, copy=self.opt_delcopy)
+        elif op == "yd":
+            self._delete_range(sy, sx, ty, tx, linewise, copy=True)
         elif op == "y":
             self._yank_range(sy, sx, ty, tx, linewise)
             self.msg = f"{ty - sy + 1} lines yanked" if linewise else "yanked"
@@ -1730,11 +1762,11 @@ class Editor:
                 self.pending_op = ""
                 self.pending_count = 0
                 self.pending_extra_n = None
-                if op in ("d", "c"):
+                if op in ("d", "yd", "c"):
                     self._snapshot()
                 self._pending_find_for_op = (cmd, key)
                 self._exec_operator(op, cmd, op_n)
-                if op == "d":
+                if op in ("d", "yd"):
                     self._save_dot()
             else:
                 self._exec_find(cmd, key, n)
@@ -1747,6 +1779,10 @@ class Editor:
             op = self.pending_op
             op_n = self.pending_count
             op_extra_n = self.pending_extra_n
+            if op == "y" and key == "d":
+                self._start_dot(op_n, "yd")
+                self.pending_op = "yd"
+                return
             # Handle 'g' prefix in operator-pending (e.g. dgg)
             if self._pending_g_op:
                 self._pending_g_op = False
@@ -1784,10 +1820,13 @@ class Editor:
                     rng = self._find_quote_object("'", around=around)
                 if rng:
                     sy, sx, ey, ex = rng
-                    if op in ("d", "c"):
+                    if op in ("d", "yd", "c"):
                         self._snapshot()
                     if op == "d":
-                        self._delete_range(sy, sx, ey, ex)
+                        self._delete_range(sy, sx, ey, ex, copy=self.opt_delcopy)
+                        self._save_dot()
+                    elif op == "yd":
+                        self._delete_range(sy, sx, ey, ex, copy=True)
                         self._save_dot()
                     elif op == "y":
                         self._yank_range(sy, sx, ey, ex)
@@ -1806,8 +1845,13 @@ class Editor:
             self.pending_count = 0
             self.pending_extra_n = None
             # Doubled operator = line-wise (dd, yy, cc, >>, <<)
-            if key == op:
+            if key == op or (op == "yd" and key == "d"):
                 if op == "d":
+                    self._snapshot()
+                    end = min(self.cy + op_n - 1, len(self.buf.lines) - 1)
+                    self._delete_range(self.cy, 0, end, 0, linewise=True, copy=self.opt_delcopy)
+                    self._save_dot()
+                elif op == "yd":
                     self._snapshot()
                     self._delete_lines(self.cy, op_n)
                     self._save_dot()
@@ -1835,10 +1879,10 @@ class Editor:
                     self._dedent_lines(self.cy, op_n)
                     self._save_dot()
             else:
-                if op in ("d", "c"):
+                if op in ("d", "yd", "c"):
                     self._snapshot()
                 self._exec_operator(op, key, op_n * n, extra_n=extra_n)
-                if op == "d":
+                if op in ("d", "yd"):
                     self._save_dot()
                 # c enters insert — recording continues
             self._clamp_cursor()
@@ -2453,6 +2497,18 @@ class Editor:
                 return
             self.opt_yankflash = val
             self.msg = f"yankflash={val}"
+        elif opt == "delcopy":
+            self.opt_delcopy = True
+            self.msg = "delcopy on"
+        elif opt == "nodelcopy":
+            self.opt_delcopy = False
+            self.msg = "delcopy off"
+        elif opt == "wrapmove":
+            self.opt_wrapmove = True
+            self.msg = "wrapmove on"
+        elif opt == "nowrapmove":
+            self.opt_wrapmove = False
+            self.msg = "wrapmove off"
         elif opt == "rghidden":
             self.opt_rghidden = True
             self.msg = "rghidden on"
@@ -2645,22 +2701,17 @@ class Editor:
             return
 
         total = len(self.buf.lines)
-        # Start searching from position after/before cursor
-        for i in range(1, total + 1):
+        for i in range(total + 1):
             line_idx = (self.cy + i * direction) % total
             line = self.buf.lines[line_idx]
             if direction == 1:
-                # Forward: on the starting line (wrap-around), search from col 0
-                # On the very first candidate (cy+1), search from col 0
-                if line_idx == self.cy:
-                    m = pat.search(line, 0)
-                else:
-                    m = pat.search(line)
+                start = self.cx + 1 if i == 0 else 0
+                m = pat.search(line, start)
             else:
-                # Backward: find the last match on the line
+                limit = self.cx if i == 0 else len(line)
                 m = None
                 for m_candidate in pat.finditer(line):
-                    if line_idx == self.cy and m_candidate.start() >= self.cx:
+                    if m_candidate.start() >= limit:
                         break
                     m = m_candidate
             if m:

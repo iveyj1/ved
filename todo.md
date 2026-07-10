@@ -1,6 +1,12 @@
+** Sticky notes
+1) Do not support legacy configurations, file formats, or removed behaviors.  Remove any dead code due to changes.  There are no existing implementations or configuration files. 
+2) Review proposed changes for estimated change size.  If the net increase in number of lines of code for an individual item exceeds about 50, notify me before implementation.
 ** Do
 
 ** Done
+1) / and ? s searches find second hits on the same line in the direction of search.
+2) Add delcopy/nodelcopy (delcopy == default == vim behavior) option that changes semantics of normal d<motion> operator and adds yd<motion>.  When delcopy is set, behavior is vim-like.  When nodelcopy is set, d<motion> deletes without modifying the default copy register, and yd<motion> deletes and copies.
+3) Add wrapmove option that modifies line up/down movement to move up and down by displayed rows rather than text lines.
 1) When writing file, if directory doesn't exist, prompt to create
 2) :e! resets the file to its state when last saved or first opened
 3) When yanking, highlight the yanked text for about 300ms.

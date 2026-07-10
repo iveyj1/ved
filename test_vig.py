@@ -2426,6 +2426,56 @@ def test_insert_tab_uses_tab_columns():
     assert content == "abc X\n", f"Expected one space to next tab stop, got {content!r}"
     print("  PASS: insert tab uses tab columns")
 
+# ── Phase 40: todo.md Do items ─────────────────────────────────────────────
+
+def test_search_forward_same_line_next_hit():
+    """/ and n find later matches on the same line before moving lines."""
+    path = write_temp("foo foo foo\n")
+    screen, _, code = run_vig(b"/foo\rn:q\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "1:9" in screen, f"Expected third same-line hit at 1:9: {screen[-800:]}"
+    print("  PASS: forward search finds same-line hits")
+
+def test_search_backward_same_line_previous_hit():
+    """? and n find earlier matches on the same line before moving lines."""
+    path = write_temp("foo foo foo\n")
+    screen, _, code = run_vig(b"$?foo\rn:q\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "1:5" in screen, f"Expected second same-line hit at 1:5: {screen[-800:]}"
+    print("  PASS: backward search finds same-line hits")
+
+def test_nodelcopy_does_not_change_register():
+    """With nodelcopy, d{motion} deletes without replacing the register."""
+    path = write_temp("keep\none two\n")
+    keys = b":set nodelcopy\ryyjdwp:wq\r"
+    _, content, code = run_vig(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content == "keep\ntwo\nkeep\n", f"nodelcopy d changed register: {content!r}"
+    print("  PASS: nodelcopy d preserves register")
+
+def test_yd_deletes_and_copies_with_nodelcopy():
+    """yd{motion} deletes and copies when nodelcopy is active."""
+    path = write_temp("copy\nstay\n")
+    keys = b":set nodelcopy\ryddp:wq\r"
+    _, content, code = run_vig(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content == "stay\ncopy\n", f"ydd did not delete-copy: {content!r}"
+    print("  PASS: yd deletes and copies")
+
+def test_wrapmove_j_moves_display_row():
+    """wrapmove makes j move by wrapped display rows."""
+    path = write_temp("abcdefghijk\nzz\n")
+    screen, _, code = run_vig(b":set wrap\r:set wrapmove\rj:q\r", file_path=path, cols=10)
+    os.unlink(path)
+    assert code == 0
+    frame = last_frame(screen)
+    assert "\x1b[2;1H" in frame, f"Expected j to move to wrapped row on same line: {frame[-800:]}"
+    print("  PASS: wrapmove j moves display row")
+
 # ── Runner ─────────────────────────────────────────────────────────────────
 
 def run_phase(name, tests):
@@ -2715,6 +2765,13 @@ def main():
             test_yank_flash_clears_after_configured_time,
             test_relativenumber_cursor_row_shifted_left,
             test_insert_tab_uses_tab_columns,
+        ]),
+        ("40", "Phase 40 — todo.md Do items", [
+            test_search_forward_same_line_next_hit,
+            test_search_backward_same_line_previous_hit,
+            test_nodelcopy_does_not_change_register,
+            test_yd_deletes_and_copies_with_nodelcopy,
+            test_wrapmove_j_moves_display_row,
         ]),
     ]
 

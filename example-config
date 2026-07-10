@@ -2,4 +2,6 @@
 relativenumber
 scrolloff=10
 nowrap
-
+nowrapmove
+delcopy
+yankflash=300

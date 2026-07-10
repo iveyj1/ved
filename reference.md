@@ -24,6 +24,7 @@ vig is a compact, single-file, vi-style terminal editor. Runtime code lives in `
 | Key | Action |
 |-----|--------|
 | `d` `y` `c` + motion | delete / yank / change over motion |
+| `yd` + motion | delete and yank over motion (useful with `:set nodelcopy`) |
 | `dd` `yy` `cc` | linewise delete / yank / change |
 | `D` `C` | delete / change to end of line |
 | `Y` | yank entire line |
@@ -69,8 +70,8 @@ vig is a compact, single-file, vi-style terminal editor. Runtime code lives in `
 ## Search & Replace
 | Key / Command | Action |
 |---------------|--------|
-| `/pattern` | search forward (Python regular expression) |
-| `?pattern` | search backward |
+| `/pattern` | search forward (Python regular expression), including later hits on the current line |
+| `?pattern` | search backward, including earlier hits on the current line |
 | `n` / `N` | next / previous match |
 | `:[range]s/pat/repl/[g]` | substitute (any delimiter; range: `%`, `N,M`) |
 
@@ -95,6 +96,7 @@ vig is a compact, single-file, vi-style terminal editor. Runtime code lives in `
 | `:r !<cmd>` | insert command output below cursor |
 | `:! <cmd>` / `:!<cmd>` | run shell command and show one-line truncated output in message bar |
 | `:set wrap` / `nowrap` | toggle line wrapping |
+| `:set wrapmove` / `nowrapmove` | with wrap on, make `j`/`k`/Up/Down move by displayed rows |
 | `:set number` / `nonumber` | toggle absolute line numbers |
 | `:set relativenumber` / `norelativenumber` | toggle relative line numbers |
 | `:set autoindent` / `noautoindent` | toggle autoindent |
@@ -102,6 +104,7 @@ vig is a compact, single-file, vi-style terminal editor. Runtime code lives in `
 | `:set scrolloff=<N>` | keep N-line vertical margin around cursor |
 | `:set clipboard=osc52|auto|off` | clipboard copy mode (current default `osc52`) |
 | `:set yankflash=<ms>` | yank highlight duration in milliseconds (`0` disables) |
+| `:set delcopy` / `nodelcopy` | choose whether `d` updates the unnamed register; `yd` always does |
 | `:set rghidden` / `norghidden` | add `-H` to `:rg` command when set |
 
 Path semantics: `:e`/`:w` expand `~`; relative paths resolve from current buffer directory. If `:w` targets a missing parent directory, vig asks `Create directory ...? (y/n)` before calling `mkdir -p` and writing.
