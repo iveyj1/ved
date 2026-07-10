@@ -217,6 +217,7 @@ class Editor:
         self.opt_relnum = False  # :set relativenumber
         self.opt_scrolloff = 0  # :set scrolloff=N
         self.opt_clipboard = "osc52"  # :set clipboard=osc52|auto|off
+        self.opt_yankflash = 300  # :set yankflash=N milliseconds
         self.opt_rghidden = False  # :set rghidden/norghidden
         self._insert_word_count = 0 # WORD boundaries since last snapshot
         self._insert_last_space = True  # for WORD boundary counting
@@ -1483,7 +1484,9 @@ class Editor:
 
     def _flash_yank(self, sy, sx, ey, ex, linewise=False):
         """Briefly highlight freshly yanked text."""
-        self._yank_flash = (time.monotonic() + 0.3, sy, sx, ey, ex, linewise)
+        if self.opt_yankflash <= 0:
+            return
+        self._yank_flash = (time.monotonic() + self.opt_yankflash / 1000.0, sy, sx, ey, ex, linewise)
         self.render()
 
     # ── Operator-pending motion execution ──────────────────────────────
@@ -2439,6 +2442,16 @@ class Editor:
                 return
             self.opt_clipboard = val
             self.msg = f"clipboard={val}"
+        elif opt.startswith("yankflash="):
+            try:
+                val = int(opt[len("yankflash="):])
+                if val < 0:
+                    raise ValueError
+            except ValueError:
+                self.msg = "yankflash must be >= 0"
+                return
+            self.opt_yankflash = val
+            self.msg = f"yankflash={val}"
         elif opt == "rghidden":
             self.opt_rghidden = True
             self.msg = "rghidden on"
@@ -2665,6 +2678,12 @@ class Editor:
         try:
             while self.running:
                 self.render()
+                if self._yank_flash:
+                    timeout = max(0.0, self._yank_flash[0] - time.monotonic())
+                    ready, _, _ = select.select([self.term.fd], [], [], timeout)
+                    if not ready:
+                        self._yank_flash = None
+                        continue
                 key = self.term.read_key()
                 if not key:
                     continue

@@ -2374,8 +2374,20 @@ def test_yank_flashes_highlight():
     screen, _, code = run_vig(b":set clipboard=off\ryy:q\r", file_path=path, timeout=4.0)
     os.unlink(path)
     assert code == 0
-    assert "\x1b[7m" in screen and "alpha" in screen, f"Expected yank highlight: {screen[-800:]}"
+    assert "\x1b[7malpha" in screen, f"Expected yank highlight: {screen[-800:]}"
     print("  PASS: yank flashes highlight")
+
+def test_yank_flash_clears_after_configured_time():
+    """Yank highlight clears on its timer even without cursor movement."""
+    path = write_temp("alpha\nbeta\n")
+    screen, _, code = run_vig(b":set clipboard=off\r:set yankflash=100\ryy", file_path=path, timeout=1.0)
+    os.unlink(path)
+    frame = last_frame(screen)
+    assert code == -99
+    assert "yankflash=100" in screen, f"Expected yankflash setting message: {screen[-800:]}"
+    assert "\x1b[7malpha" in screen, f"Expected initial yank highlight: {screen[-800:]}"
+    assert "\x1b[7malpha" not in frame, f"Expected highlight cleared in final frame: {frame[-800:]}"
+    print("  PASS: yank flash clears after configured time")
 
 def test_relativenumber_cursor_row_shifted_left():
     """Relative-number cursor row uses spare gutter space to shift left."""
@@ -2680,6 +2692,7 @@ def main():
             test_write_missing_directory_no_cancels,
             test_edit_bang_reloads_file_from_disk,
             test_yank_flashes_highlight,
+            test_yank_flash_clears_after_configured_time,
             test_relativenumber_cursor_row_shifted_left,
             test_insert_tab_uses_tab_columns,
         ]),

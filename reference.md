@@ -101,6 +101,7 @@ vig is a compact, single-file, vi-style terminal editor. Runtime code lives in `
 | `:set comment=<str>` | set comment prefix (default `#`) |
 | `:set scrolloff=<N>` | keep N-line vertical margin around cursor |
 | `:set clipboard=osc52|auto|off` | clipboard copy mode (current default `osc52`) |
+| `:set yankflash=<ms>` | yank highlight duration in milliseconds (`0` disables) |
 | `:set rghidden` / `norghidden` | add `-H` to `:rg` command when set |
 
 Path semantics: `:e`/`:w` expand `~`; relative paths resolve from current buffer directory. If `:w` targets a missing parent directory, vig asks `Create directory ...? (y/n)` before calling `mkdir -p` and writing.
