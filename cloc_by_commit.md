@@ -1,6 +1,6 @@
 ### vig.py cloc by commit
 
-Generated with `perl ~/Downloads/cloc-2.10.pl vig.py` against each commit version of `vig.py`.
+Generated with `perl cloc.pl` against each commit version of `vig.py` (or historical `ved.py`).
 
 | Commit | Code | Blank | Comment | Subject |
 |---|---:|---:|---:|---|
@@ -52,3 +52,8 @@ Generated with `perl ~/Downloads/cloc-2.10.pl vig.py` against each commit versio
 | `8184aac` | 2122 | 182 | 218 | Add quit aliases and startup config |
 | `b195bc5` | 2122 | 182 | 218 | add cloc script |
 | `4ce6d85` | 2245 | 186 | 222 | Add ripgrep quickfix buffer |
+| `86ca3f9` | 2245 | 186 | 222 | rename to vigor/vig from ved |
+| `5c0ef02` | 2312 | 191 | 226 | Implement todo items 1-5 |
+| `e81851f` | 2331 | 191 | 226 | Clear yank highlight on timer |
+| `fe88fb0` | 2331 | 191 | 226 | add cloc, fix update_cloc_by_commit.sh |
+| `2e68b02` | 2331 | 191 | 227 | Allow r to replace with digits |
