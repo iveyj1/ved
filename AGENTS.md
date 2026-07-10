@@ -14,7 +14,7 @@ The project goal is a practical, small editor that remains easy to inspect, run,
 **Files**
 
 - `vig.py` — the entire editor (~2400 lines)
-- `test_vig.py` — PTY-based smoke tests (plain asserts, no framework, 189 test functions)
+- `test_vig.py` — PTY-based smoke tests (plain asserts, no framework, 191 test functions)
 - `archive/PLAN.md` — retired original development plan, kept for history only
 - `AGENTS.md` — this document
 - `reference.md` — command reference
@@ -158,7 +158,7 @@ vigor is vi-inspired, not vi-compatible. These differences are intentional:
 
 **Assertions** — tests check exit code, file contents after `:wq`, and screen output for markers like reverse video escapes, filenames, or tilde rows. Screen output is decoded as UTF-8 with replacement.
 
-**Coverage** — 189 test functions organized into 39 phase groups, covering scaffold, editing, motions, visual mode, ex commands, wrapping, line numbers, undo/redo, operators, text objects, comments, dot repeat, shell/read commands, multi-buffer behavior, path handling, scrolloff, clipboard modes, small command/edit fixes, quit aliases, startup config, and ripgrep quickfix. Run with `python3 test_vig.py`.
+**Coverage** — 191 test functions organized into 39 phase groups, covering scaffold, editing, motions, visual mode, ex commands, wrapping, line numbers, undo/redo, operators, text objects, comments, dot repeat, shell/read commands, multi-buffer behavior, path handling, scrolloff, clipboard modes, small command/edit fixes, quit aliases, startup config, and ripgrep quickfix. Run with `python3 test_vig.py`.
 
 
 ## Workflow for AI Agents

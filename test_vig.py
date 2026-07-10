@@ -2137,6 +2137,24 @@ def test_r_replaces_character():
     assert content == "aZc\n", f"r replace failed: {content!r}"
     print("  PASS: r replaces character")
 
+def test_r_replaces_with_digit():
+    """Normal-mode r accepts a digit as the replacement character."""
+    path = write_temp("dog\n")
+    screen, content, code = run_vig(b"lr2:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content == "d2g\n", f"r digit replace failed: {content!r}"
+    print("  PASS: r replaces with digit")
+
+def test_count_r_replaces_with_digit():
+    """Counted r still replaces N chars, even when replacement is a digit."""
+    path = write_temp("abcde\n")
+    screen, content, code = run_vig(b"2r3:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content == "33cde\n", f"counted r digit replace failed: {content!r}"
+    print("  PASS: count r replaces with digit")
+
 def test_s_substitutes_character():
     """Normal-mode s deletes char under cursor and enters insert."""
     path = write_temp("abc\n")
@@ -2669,6 +2687,8 @@ def main():
             test_bang_multiline_output_compact,
             test_normal_backspace_deletes_left,
             test_r_replaces_character,
+            test_r_replaces_with_digit,
+            test_count_r_replaces_with_digit,
             test_s_substitutes_character,
             test_dw_at_eol_does_not_join_lines,
             test_ctrl_z_stops_process,

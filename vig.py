@@ -1629,20 +1629,8 @@ class Editor:
             self.msg = "^C"
             return
 
-        # Count prefix accumulation
-        if key.isdigit() and (self.count > 0 or key != "0"):
-            self.count = self.count * 10 + int(key)
-            return
-
-        n = max(self.count, 1)
-        extra_n = self.count if self.count > 0 else None
-        self.count = 0  # reset after consuming
-
-        # Dot repeat recording — record keys (not count digits) while active
-        if self._recording and not self._replaying_dot:
-            self._recording_keys.append(key)
-
-        # r{char}: replace character(s) under cursor
+        # r{char}: replace character(s) under cursor. This must run before
+        # count-prefix parsing so digits can be replacement characters.
         if self._pending_replace:
             repl_n = self._pending_replace
             self._pending_replace = 0
@@ -1660,6 +1648,19 @@ class Editor:
             self._clamp_cursor()
             self._ensure_scroll()
             return
+
+        # Count prefix accumulation
+        if key.isdigit() and (self.count > 0 or key != "0"):
+            self.count = self.count * 10 + int(key)
+            return
+
+        n = max(self.count, 1)
+        extra_n = self.count if self.count > 0 else None
+        self.count = 0  # reset after consuming
+
+        # Dot repeat recording — record keys (not count digits) while active
+        if self._recording and not self._replaying_dot:
+            self._recording_keys.append(key)
 
         # Space leader: wait for next key
         if self._pending_space:
