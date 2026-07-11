@@ -28,7 +28,7 @@ vig is a compact, single-file, vi-style terminal editor. Runtime code lives in `
 | `dd` `yy` `cc` | linewise delete / yank / change |
 | `D` `C` | delete / change to end of line |
 | `Y` | yank entire line |
-| `x` | delete char at cursor |
+| `x` / Delete | delete char at cursor |
 | `X` / Backspace | delete char before cursor |
 | `r{c}` | replace char(s) under cursor with `c` (count: N chars) |
 | `s` | substitute char(s): delete and enter Insert (count: N chars) |
@@ -85,7 +85,7 @@ vig is a compact, single-file, vi-style terminal editor. Runtime code lives in `
 | `:qa` / `:qall` | quit all buffers |
 | `:qa!` / `:qall!` | force quit all |
 | `:e <path>` | open file in new buffer |
-| `:e!` | reload current buffer from disk, discarding unsaved changes |
+| `:e!` | reload current buffer from disk, discarding unsaved changes; errors if unnamed |
 | `:new` | create empty buffer |
 | `:n` / `:next` / `:bn` | next buffer |
 | `:p` / `:prev` / `:bp` | previous buffer |

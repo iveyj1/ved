@@ -2498,6 +2498,26 @@ def test_bracketed_paste_does_not_execute_escape_commands():
     assert content == "hello\x1b:q!\nworld\n", f"Bracketed paste interpreted commands: {content!r}"
     print("  PASS: bracketed paste does not execute commands")
 
+# ── Phase 42: todo.md Do items ─────────────────────────────────────────────
+
+def test_edit_bang_no_file_name_errors():
+    """:e! on an unnamed buffer reports an error instead of clearing it."""
+    path = write_temp("base\n")
+    screen, _, code = run_vig(b":new\riabc\x1b:e!\r:q!\r:q\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "No file name" in screen, f"Expected no-file-name error: {screen[-800:]}"
+    print("  PASS: :e! unnamed buffer errors")
+
+def test_normal_delete_key_aliases_x():
+    """Delete key in Normal mode deletes like x."""
+    path = write_temp("abc\n")
+    _, content, code = run_vig(b"\x1b[3~:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert content == "bc\n", f"Normal Delete should behave like x: {content!r}"
+    print("  PASS: normal Delete aliases x")
+
 # ── Runner ─────────────────────────────────────────────────────────────────
 
 def run_phase(name, tests):
@@ -2798,6 +2818,10 @@ def main():
         ("41", "Phase 41 — bracketed paste", [
             test_bracketed_paste_insert_literal_text,
             test_bracketed_paste_does_not_execute_escape_commands,
+        ]),
+        ("42", "Phase 42 — todo.md Do items", [
+            test_edit_bang_no_file_name_errors,
+            test_normal_delete_key_aliases_x,
         ]),
     ]
 

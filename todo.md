@@ -1,18 +1,13 @@
 ** Sticky notes
 1) Do not support legacy configurations, file formats, or removed behaviors.  Remove any dead code due to changes.  There are no existing implementations or configuration files. 
 2) Review proposed changes for estimated change size.  If the net increase in number of lines of code for an individual item exceeds about 50, notify me before implementation.
+
 ** Do
-1) add :e <no argument> command that rereads the current buffer from disk, providing an option to continue/abort if the current buffer is dirty.
-2) Add <del> as alias for x in normal mode.
 
 ** On hold
-1) add column-select mode. From normal mode <ctrl>-v to enter, esc, y, or d, to exit.  y copies  (interaction with yd?) Selected text, d deletes, moving non-deleted text on affected lines to the left.  
-2) add :e <no argument> command that rereads the current buffer from disk, providing an option to continue/abort if the current buffer is dirty.
-
-** On hold
-1) add column-select mode from normal mode <ctrl-v> to enter, esc, y, or d, to exit
-
 ** Done
+1) :e! command rereads the current buffer from disk. If no file name show an error.
+2) Add <del> as alias for x in normal mode.
 1) / and ? s searches find second hits on the same line in the direction of search.
 2) Add delcopy/nodelcopy (delcopy == default == vim behavior) option that changes semantics of normal d<motion> operator and adds yd<motion>.  When delcopy is set, behavior is vim-like.  When nodelcopy is set, d<motion> deletes without modifying the default copy register, and yd<motion> deletes and copies.
 3) Add wrapmove option that modifies line up/down movement to move up and down by displayed rows rather than text lines.
@@ -36,10 +31,8 @@
 11) Allow ^z backgrounding of app
 12) Fix dw at end of line so it does not merge lines
 
-
 ** Hold for further definition
-1) Leverage shell utilities. e.g. support ripgrep better
-2) simple quickfix list
+3) add column-select mode. From normal mode <ctrl>-v to enter, esc, y, or d, to exit.  y copies, d deletes  (interaction with yd?) moving non-deleted text on affected lines to the left.  
 3) configurable keymaps
 4) :g commands 
 6) simple syntax highlighting mechanism, C, Python, and Bash to start.  If too much added code, consider comment-and-string only.

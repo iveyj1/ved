@@ -377,7 +377,9 @@ class Editor:
     def _reload_current_buffer(self):
         """Reload current buffer from disk, discarding unsaved changes."""
         if not self.buf.path:
-            self.buf.lines = [""]
+            self.msg = "No file name"
+            self.mode = Mode.NORMAL
+            return
         else:
             try:
                 with open(self.buf.path, "r") as f:
@@ -1967,8 +1969,8 @@ class Editor:
                 self._undo_stack.pop()
             self._save_dot()
         # Paste
-        elif key == "x":
-            self._start_dot(n, "x")
+        elif key in ("x", "DEL"):
+            self._start_dot(n, key)
             self._snapshot()
             line = self.buf.lines[self.cy]
             if line and self.cx < len(line):
