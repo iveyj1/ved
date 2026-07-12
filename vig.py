@@ -1393,6 +1393,29 @@ class Editor:
                 return
         out.append(visible)
 
+    def _append_completion_box(self, out):
+        """Overlay centered completion menu with a rounded border."""
+        if self.mode != Mode.COMMAND or not self.comp_matches or self.cols < 8 or self.rows < 5:
+            return
+        max_items = max(1, self.rows - 4)
+        item_rows = min(len(self.comp_matches), max_items)
+        inner_w = min(max(len(n) for n in self.comp_matches), self.cols - 4)
+        box_w = inner_w + 2
+        box_h = item_rows + 2
+        top = max(1, (self.rows - box_h) // 2 + 1)
+        left = max(1, (self.cols - box_w) // 2 + 1)
+        start = max(0, min(self.comp_index - item_rows + 1, len(self.comp_matches) - item_rows))
+        out.append(f"\x1b[{top};{left}H╭" + "─" * inner_w + "╮")
+        for row, idx in enumerate(range(start, start + item_rows), top + 1):
+            text = self.comp_matches[idx][:inner_w].ljust(inner_w)
+            out.append(f"\x1b[{row};{left}H│")
+            if idx == self.comp_index:
+                out.append("\x1b[7m" + text + "\x1b[m")
+            else:
+                out.append(text)
+            out.append("│")
+        out.append(f"\x1b[{top + box_h - 1};{left}H╰" + "─" * inner_w + "╯")
+
     def render(self):
         out = []
         out.append("\x1b[?25l")  # hide cursor
@@ -1416,10 +1439,8 @@ class Editor:
         cursor_screen_x = self.cx + gw
         buf_line = self.scroll
         window_hscroll = 0 if self.opt_wrap else max(0, self.cx - content_cols + 1)
-        comp_rows = min(len(self.comp_matches), max(0, self.rows - 1)) if self.mode == Mode.COMMAND else 0
-        content_limit = self.rows - comp_rows
 
-        while screen_rows_used < content_limit and buf_line < len(self.buf.lines):
+        while screen_rows_used < self.rows and buf_line < len(self.buf.lines):
             line = self.buf.lines[buf_line]
             if buf_line == self.cy:
                 # Track cursor screen position
@@ -1431,7 +1452,7 @@ class Editor:
                     cursor_screen_y = screen_rows_used
                     cursor_screen_x = self.cx - window_hscroll + gw
 
-            rows_available = content_limit - screen_rows_used
+            rows_available = self.rows - screen_rows_used
             if self.opt_wrap:
                 used = self._render_line(line, buf_line, sel, out, gw, max_rows=rows_available)
                 screen_rows_used += used
@@ -1440,22 +1461,14 @@ class Editor:
                 screen_rows_used += 1
             buf_line += 1
 
-        # Fill remaining content rows with tildes
-        while screen_rows_used < content_limit:
+        # Fill remaining rows with tildes
+        while screen_rows_used < self.rows:
             out.append("~")
             out.append("\x1b[K\r\n")
             screen_rows_used += 1
 
-        if comp_rows:
-            start = max(0, min(self.comp_index - comp_rows + 1, len(self.comp_matches) - comp_rows))
-            for i, name in enumerate(self.comp_matches[start:start + comp_rows], start):
-                text = name[:self.cols]
-                if i == self.comp_index:
-                    out.append("\x1b[7m" + text + "\x1b[m")
-                else:
-                    out.append(text)
-                out.append("\x1b[K\r\n")
-                screen_rows_used += 1
+        self._append_completion_box(out)
+        out.append(f"\x1b[{self.rows + 1};1H")
 
         # Status bar (reverse video)
         out.append("\x1b[7m")

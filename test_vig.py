@@ -2543,6 +2543,7 @@ def test_completion_menu_enter_accepts_first_match():
         open(second, "w").write("second\n")
         screen, _, code = run_vig(b":e aa_\t\r\r:q\r:q\r", file_path=base)
     assert code == 0
+    assert "╭" in screen and "╯" in screen, f"Expected rounded completion border: {screen[-1000:]}"
     assert "\x1b[7maa_one.txt" in screen, f"Expected highlighted first completion: {screen[-1000:]}"
     assert "first" in screen, f"Expected accepted first file opened: {screen[-1000:]}"
     print("  PASS: completion menu Enter accepts first match")
