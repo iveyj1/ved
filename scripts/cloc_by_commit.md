@@ -65,3 +65,5 @@ Generated with `perl cloc.pl` against each commit version of `vig.py` (or histor
 | `265d215` | 2519 | 199 | 225 | 82 | Add command completion and history |
 | `dab7ad6` | 2578 | 206 | 225 | 59 | Add completion menu |
 | `e4bcefc` | 2589 | 207 | 226 | 11 | Center completion menu |
+| `40e77ed` | 2589 | 207 | 226 | 0 | make scripts dir |
+| `0bbf019` | 2618 | 209 | 227 | 29 | Add startup splash screen |

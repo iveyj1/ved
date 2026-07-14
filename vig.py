@@ -431,7 +431,7 @@ class Editor:
         xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
         return [
             os.path.expanduser("~/.vigrc"),
-            os.path.join(xdg, "vig", "config"),
+            os.path.join(xdg, "vigor", "config"),
         ]
 
     def _load_config(self):
