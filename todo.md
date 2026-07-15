@@ -7,6 +7,7 @@
 ** On hold
 1. Discuss
 ** Done
+1. Extract shared command/search prompt editing and centralize case-operation lookup.
 1. Show a cursor on `:`, `/`, and `?` command lines.
 1. Add one space around completion dialog filenames between text and frame.
 2. Make `:rg` report no hits without opening quickfix.

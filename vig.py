@@ -1714,6 +1714,10 @@ class Editor:
         self.buf.dirty = True
         return text
 
+    def _case_func(self, op):
+        """Return the character transform for a case operator."""
+        return {"g~": str.swapcase, "gU": str.upper, "gu": str.lower}[op]
+
     def _change_case_range(self, sy, sx, ey, ex, func):
         """Apply func to the half-open character range without touching registers."""
         for y in range(sy, ey + 1):
@@ -1755,7 +1759,7 @@ class Editor:
             self._delete_range(sy, sx, ty, tx, linewise)
             self._enter_insert()
         elif op in ("g~", "gU", "gu"):
-            func = str.swapcase if op == "g~" else (str.upper if op == "gU" else str.lower)
+            func = self._case_func(op)
             if linewise:
                 sy, sx, ty, tx = sy, 0, ty, len(self.buf.lines[ty])
             self._change_case_range(sy, sx, ty, tx, func)
@@ -1955,8 +1959,7 @@ class Editor:
                         self._delete_range(sy, sx, ey, ex)
                         self._enter_insert()
                     else:
-                        func = str.swapcase if op == "g~" else (str.upper if op == "gU" else str.lower)
-                        self._change_case_range(sy, sx, ey, ex, func)
+                        self._change_case_range(sy, sx, ey, ex, self._case_func(op))
                 else:
                     self._save_dot()
                 self.pending_op = ""
@@ -2005,8 +2008,7 @@ class Editor:
                 elif op in ("g~", "gU", "gu"):
                     self._snapshot()
                     end = min(self.cy + op_n - 1, len(self.buf.lines) - 1)
-                    func = str.swapcase if op == "g~" else (str.upper if op == "gU" else str.lower)
-                    self._change_case_range(self.cy, 0, end, len(self.buf.lines[end]), func)
+                    self._change_case_range(self.cy, 0, end, len(self.buf.lines[end]), self._case_func(op))
                     self._save_dot()
             else:
                 if op in ("d", "yd", "c", "g~", "gU", "gu"):
@@ -2342,6 +2344,35 @@ class Editor:
         if text and (not hist or hist[-1] != text):
             hist.append(text)
 
+    def _edit_prompt(self, key, completion=False):
+        """Edit self.cmd. Return False only for an unhandled key or empty Backspace."""
+        changed = False
+        if key == "LEFT":
+            self.cmd_cx = max(0, self.cmd_cx - 1)
+        elif key == "RIGHT":
+            self.cmd_cx = min(len(self.cmd), self.cmd_cx + 1)
+        elif key == "BACKSPACE":
+            if not self.cmd_cx:
+                return bool(self.cmd)
+            self.cmd = self.cmd[:self.cmd_cx - 1] + self.cmd[self.cmd_cx:]
+            self.cmd_cx -= 1
+            changed = True
+        elif key == "DEL":
+            if self.cmd_cx < len(self.cmd):
+                self.cmd = self.cmd[:self.cmd_cx] + self.cmd[self.cmd_cx + 1:]
+                changed = True
+        elif len(key) == 1:
+            self.cmd = self.cmd[:self.cmd_cx] + key + self.cmd[self.cmd_cx:]
+            self.cmd_cx += 1
+            changed = True
+        else:
+            return False
+        if changed:
+            self._reset_history_nav()
+            if completion:
+                self._refresh_completion()
+        return True
+
     def _clear_completion(self):
         self.comp_matches = []
         self.comp_index = 0
@@ -2445,32 +2476,10 @@ class Editor:
             self.cmd = ""
             self.cmd_cx = 0
             return
-        if key == "LEFT":
-            self.cmd_cx = max(0, self.cmd_cx - 1)
-            return
-        if key == "RIGHT":
-            self.cmd_cx = min(len(self.cmd), self.cmd_cx + 1)
+        if self._edit_prompt(key, completion=True):
             return
         if key == "BACKSPACE":
-            if self.cmd_cx:
-                self._reset_history_nav()
-                self.cmd = self.cmd[:self.cmd_cx - 1] + self.cmd[self.cmd_cx:]
-                self.cmd_cx -= 1
-                self._refresh_completion()
-            elif not self.cmd:
-                self.mode = Mode.NORMAL
-            return
-        if key == "DEL":
-            if self.cmd_cx < len(self.cmd):
-                self._reset_history_nav()
-                self.cmd = self.cmd[:self.cmd_cx] + self.cmd[self.cmd_cx + 1:]
-                self._refresh_completion()
-            return
-        if len(key) == 1:
-            self._reset_history_nav()
-            self.cmd = self.cmd[:self.cmd_cx] + key + self.cmd[self.cmd_cx:]
-            self.cmd_cx += 1
-            self._refresh_completion()
+            self.mode = Mode.NORMAL
 
     def _exec_command(self, raw):
         stripped = raw.strip()
@@ -2916,8 +2925,7 @@ class Editor:
                 if sel:
                     sy, sx, ey, ex = sel
                     self._snapshot()
-                    func = str.swapcase if key == "~" else (str.upper if key == "U" else str.lower)
-                    self._change_case_range(sy, sx, ey, min(ex + 1, len(self.buf.lines[ey])), func)
+                    self._change_case_range(sy, sx, ey, min(ex + 1, len(self.buf.lines[ey])), self._case_func("g" + key))
                 self.mode = Mode.NORMAL
                 return
             else:
@@ -3019,29 +3027,10 @@ class Editor:
             if self.search_pattern:
                 self._search_next(self.search_dir)
             return
-        if key == "LEFT":
-            self.cmd_cx = max(0, self.cmd_cx - 1)
-            return
-        if key == "RIGHT":
-            self.cmd_cx = min(len(self.cmd), self.cmd_cx + 1)
+        if self._edit_prompt(key):
             return
         if key == "BACKSPACE":
-            if self.cmd_cx:
-                self._reset_history_nav()
-                self.cmd = self.cmd[:self.cmd_cx - 1] + self.cmd[self.cmd_cx:]
-                self.cmd_cx -= 1
-            elif not self.cmd:
-                self.mode = Mode.NORMAL
-            return
-        if key == "DEL":
-            if self.cmd_cx < len(self.cmd):
-                self._reset_history_nav()
-                self.cmd = self.cmd[:self.cmd_cx] + self.cmd[self.cmd_cx + 1:]
-            return
-        if len(key) == 1:
-            self._reset_history_nav()
-            self.cmd = self.cmd[:self.cmd_cx] + key + self.cmd[self.cmd_cx:]
-            self.cmd_cx += 1
+            self.mode = Mode.NORMAL
 
     def _search_next(self, direction):
         """Search for self.search_pattern in the given direction.
