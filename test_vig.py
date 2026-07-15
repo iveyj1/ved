@@ -2469,11 +2469,10 @@ def test_yd_deletes_and_copies_with_nodelcopy():
 def test_wrapmove_j_moves_display_row():
     """wrapmove makes j move by wrapped display rows."""
     path = write_temp("abcdefghijk\nzz\n")
-    screen, _, code = run_vig(b":set wrap\r:set wrapmove\rj:q\r", file_path=path, cols=10)
+    _, content, code = run_vig(b":set wrap\r:set wrapmove\rjiX\x1b:wq\r", file_path=path, cols=10)
     os.unlink(path)
     assert code == 0
-    frame = last_frame(screen)
-    assert "\x1b[2;1H" in frame, f"Expected j to move to wrapped row on same line: {frame[-800:]}"
+    assert content == "abcdefghijXk\nzz\n", f"Expected j to move to wrapped row: {content!r}"
     print("  PASS: wrapmove j moves display row")
 
 # ── Phase 41: bracketed paste ──────────────────────────────────────────────
@@ -2689,6 +2688,14 @@ def test_prompt_cursor_editing():
     os.unlink(path)
     assert code == 0 and "number on" in screen and "1:1" in screen, f"Prompt edit failed: {screen[-800:]}"
     print("  PASS: prompt cursor editing")
+
+def test_prompt_cursor_is_visible():
+    """The terminal cursor follows command and search prompt editing."""
+    path = write_temp("foo\n")
+    screen, _, code = run_vig(b"\x1b:abc", file_path=path, timeout=1.0)
+    os.unlink(path)
+    assert code == -99 and "\x1b[24;5H" in last_frame(screen)
+    print("  PASS: prompt cursor is visible")
 
 def test_sticky_vertical_column():
     """Vertical movement restores the desired column after a short line."""
@@ -3031,6 +3038,7 @@ def main():
             test_rg_no_hits_keeps_current_buffer,
             test_case_commands,
             test_prompt_cursor_editing,
+            test_prompt_cursor_is_visible,
             test_sticky_vertical_column,
         ]),
     ]

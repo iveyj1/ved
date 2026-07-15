@@ -1542,9 +1542,12 @@ class Editor:
         else:
             out.append("\x1b[2 q")  # steady block
 
-        # Position real cursor (use tracked values from render loop)
-        screen_y = cursor_screen_y + 1  # 1-indexed
-        screen_x = cursor_screen_x + 1  # 1-indexed
+        # Position real cursor (use prompt cursor while editing a prompt)
+        if self.mode in (Mode.COMMAND, Mode.SEARCH):
+            screen_y, screen_x = self.rows + 2, min(self.cols, self.cmd_cx + 2)
+        else:
+            screen_y = cursor_screen_y + 1  # 1-indexed
+            screen_x = cursor_screen_x + 1  # 1-indexed
         out.append(f"\x1b[{screen_y};{screen_x}H")
         out.append("\x1b[?25h")  # show cursor
 
