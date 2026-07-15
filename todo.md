@@ -5,7 +5,13 @@
 ** Do
 
 ** On hold
+1. Discuss
 ** Done
+1. Add one space around completion dialog filenames between text and frame.
+2. Make `:rg` report no hits without opening quickfix.
+3. Add `~`, `g~`, `gU`, and `gu` case commands.
+4. Add forward/backspace/delete editing of `:`, `/`, and `?` prompts.
+5. Add sticky cursor-column tracking for vertical navigation.
 1) Filename completion shows a vertical match menu for multiple matches, supports selection with Up/Down/Tab, Enter accepts the selected filename, Esc hides the menu, and typing updates the filter.
 1) Add tab filename complete for appropriate : and :! operations. Support no-path (pwd), absolute, and relative path cases.
 2) Add history for : / ? operations. / and ? share a history list. Up-down arrow scrolls through list, enter accepts, esc cancels.

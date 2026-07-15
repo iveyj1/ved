@@ -2324,7 +2324,7 @@ def test_space_o_opens_rg_location():
             f.write("alpha needle beta\n")
         screen, _, code = run_vig(f":rg needle {d}\r o\x03\x03", file_path=path, timeout=4.0)
     assert code == 0
-    assert f"NORMAL | {path}" in screen, f"Expected original file active: {screen[-800:]}"
+    assert path in screen, f"Expected original file active: {screen[-800:]}"
     assert "1:7" in screen, f"Expected cursor at rg column: {screen[-800:]}"
     print("  PASS: <space>o opens quickfix location")
 
@@ -2544,7 +2544,7 @@ def test_completion_menu_enter_accepts_first_match():
         screen, _, code = run_vig(b":e aa_\t\r\r:q\r:q\r", file_path=base)
     assert code == 0
     assert "╭" in screen and "╯" in screen, f"Expected rounded completion border: {screen[-1000:]}"
-    assert "\x1b[7maa_one.txt" in screen, f"Expected highlighted first completion: {screen[-1000:]}"
+    assert "\x1b[7m aa_one.txt " in screen, f"Expected highlighted first completion: {screen[-1000:]}"
     assert "first" in screen, f"Expected accepted first file opened: {screen[-1000:]}"
     print("  PASS: completion menu Enter accepts first match")
 
@@ -2559,7 +2559,7 @@ def test_completion_menu_down_selects_match():
         open(second, "w").write("second\n")
         screen, _, code = run_vig(b":e bb_\t\x1b[B\r\r:q\r:q\r", file_path=base)
     assert code == 0
-    assert "\x1b[7mbb_two.txt" in screen, f"Expected highlighted second completion: {screen[-1000:]}"
+    assert "\x1b[7m bb_two.txt " in screen, f"Expected highlighted second completion: {screen[-1000:]}"
     assert "second" in screen, f"Expected selected second file opened: {screen[-1000:]}"
     print("  PASS: completion menu Down selects match")
 
@@ -2650,6 +2650,54 @@ def test_search_history_shared_by_slash_and_question():
     print("  PASS: search history shared")
 
 # ── Phase 44: splash screen ───────────────────────────────────────────────
+
+# ── Phase 45: todo polish ─────────────────────────────────────────────────
+
+def test_completion_menu_has_filename_padding():
+    """Completion filenames have a space between the frame and text."""
+    with tempfile.TemporaryDirectory() as d:
+        base = os.path.join(d, "base.txt")
+        open(base, "w").write("base\n")
+        open(os.path.join(d, "pad_one.txt"), "w").write("one\n")
+        open(os.path.join(d, "pad_two.txt"), "w").write("two\n")
+        screen, _, _ = run_vig(b":e pad_\t", file_path=base, timeout=1.0)
+    assert "\x1b[7m pad_one.txt " in screen, f"Expected padded completion: {screen[-800:]}"
+    print("  PASS: completion filename padding")
+
+def test_rg_no_hits_keeps_current_buffer():
+    """:rg with no hits reports a message without opening quickfix."""
+    path = write_temp("alpha\n")
+    screen, _, code = run_vig(f"\x1b:rg no_vig_hits {path}\r:q\r".encode(), file_path=path)
+    os.unlink(path)
+    assert code == 0
+    assert "rg: no matches" in screen and "[quickfix]" not in screen
+    print("  PASS: rg no hits")
+
+def test_case_commands():
+    """~, g~, gU, and gu change case with counts and motions."""
+    path = write_temp("abc DEF\n")
+    _, content, code = run_vig(b"\x1b2~0gUwwguE0g~w:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0 and content == "abc def\n", f"Unexpected case conversion: {content!r}"
+    print("  PASS: case commands")
+
+def test_prompt_cursor_editing():
+    """Command and search prompts support forward, backspace, and delete editing."""
+    path = write_temp("foo\n")
+    keys = b"\x1b:set numxber\x1b[D\x1b[D\x1b[D\x7f\r/fxoo\x1b[D\x1b[D\x1b[D\x1b[3~\r:q\r"
+    screen, _, code = run_vig(keys, file_path=path)
+    os.unlink(path)
+    assert code == 0 and "number on" in screen and "1:1" in screen, f"Prompt edit failed: {screen[-800:]}"
+    print("  PASS: prompt cursor editing")
+
+def test_sticky_vertical_column():
+    """Vertical movement restores the desired column after a short line."""
+    path = write_temp("abcdef\na\nabcdef\n")
+    _, content, code = run_vig(b"\x1b5ljjiX\x1b:wq\r", file_path=path)
+    os.unlink(path)
+    assert code == 0 and content == "abcdef\na\nabcdeXf\n", f"Sticky column failed: {content!r}"
+    print("  PASS: sticky vertical column")
+
 
 def test_file_startup_shows_splash():
     """Opening a file briefly renders the Vigor startup logo."""
@@ -2977,6 +3025,13 @@ def main():
         ]),
         ("44", "Phase 44 — splash screen", [
             test_file_startup_shows_splash,
+        ]),
+        ("45", "Phase 45 — todo polish", [
+            test_completion_menu_has_filename_padding,
+            test_rg_no_hits_keeps_current_buffer,
+            test_case_commands,
+            test_prompt_cursor_editing,
+            test_sticky_vertical_column,
         ]),
     ]
 

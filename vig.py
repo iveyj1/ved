@@ -231,6 +231,7 @@ class Editor:
         self._undo_branched = bs._undo_branched
         self.mode = Mode.NORMAL
         self.cmd = ""  # command-line input
+        self.cmd_cx = 0  # command/search prompt cursor column
         self.cmd_history = []
         self.search_history = []
         self._hist_idx = None
@@ -275,6 +276,7 @@ class Editor:
         self._replaying_dot = False # currently replaying a dot action
         self._dot_count = 0         # count when recording started
         self._pending_g = False     # waiting for second key after 'g'
+        self._sticky_cx = None      # desired column during vertical movement
         self._pending_space = False # space-leader: waiting for next key
         self._pending_g_op = False  # 'g' prefix inside operator-pending
         self._pending_find = None   # 'f'/'t'/'F'/'T' waiting for char
@@ -522,6 +524,7 @@ class Editor:
             return
         self._save_buf_state()
         self._load_buf_state(idx)
+        self._sticky_cx = None
         self._clamp_cursor()
         self._ensure_scroll()
         self.mode = Mode.NORMAL
@@ -535,6 +538,7 @@ class Editor:
         if self.buf_idx >= len(self.buffers):
             self.buf_idx = len(self.buffers) - 1
         self._load_buf_state(self.buf_idx)
+        self._sticky_cx = None
         self._clamp_cursor()
         self._ensure_scroll()
         self.mode = Mode.NORMAL
@@ -674,6 +678,7 @@ class Editor:
 
     def _enter_insert(self):
         """Enter insert mode, resetting word-count tracking."""
+        self._sticky_cx = None
         self._insert_word_count = 0
         self._insert_last_space = True
         self.mode = Mode.INSERT
@@ -925,28 +930,32 @@ class Editor:
         return max(1, self.cols - self._gutter_width())
 
     def _motion_display_row(self, delta):
-        """Move by one displayed row when wrapmove is enabled."""
+        """Move by one displayed row while preserving the desired column."""
+        if self._sticky_cx is None:
+            self._sticky_cx = self.cx
+        desired = self._sticky_cx
         if not (self.opt_wrap and self.opt_wrapmove):
             self.cy += delta
+            self.cx = min(desired, len(self.buf.lines[max(0, min(self.cy, len(self.buf.lines) - 1))]))
             self._clamp_cursor()
             return
         cols = self._wrap_cols()
         row = self.cx // cols
-        col = self.cx % cols
+        col = desired % cols
         if delta > 0:
             rows = self._line_screen_rows(self.cy)
             if row + 1 < rows:
                 self.cx = min((row + 1) * cols + col, len(self.buf.lines[self.cy]))
             elif self.cy < len(self.buf.lines) - 1:
                 self.cy += 1
-                self.cx = min(col, len(self.buf.lines[self.cy]))
+                self.cx = min(desired, len(self.buf.lines[self.cy]))
         else:
             if row > 0:
                 self.cx = (row - 1) * cols + col
             elif self.cy > 0:
                 self.cy -= 1
                 prev_rows = self._line_screen_rows(self.cy)
-                self.cx = min((prev_rows - 1) * cols + col, len(self.buf.lines[self.cy]))
+                self.cx = min(desired, len(self.buf.lines[self.cy]))
         self._clamp_cursor()
 
     def _motion_j(self):
@@ -992,6 +1001,8 @@ class Editor:
         extra_n is the raw count (None if no count given) for motions like G/gg."""
         if key not in self._MOTION_KEYS:
             return False
+        if key not in ("j", "k", "DOWN", "UP"):
+            self._sticky_cx = None
         handlers = {
             "h": self._motion_h,
             "LEFT": self._motion_h,
@@ -1411,6 +1422,7 @@ class Editor:
         max_items = max(1, self.rows - 4)
         item_rows = min(len(self.comp_matches), max_items)
         inner_w = min(max(len(n) for n in self.comp_matches), self.cols - 4)
+        inner_w += 2
         box_w = inner_w + 2
         box_h = item_rows + 2
         top = max(1, (self.rows - box_h) // 2 + 1)
@@ -1418,7 +1430,7 @@ class Editor:
         start = max(0, min(self.comp_index - item_rows + 1, len(self.comp_matches) - item_rows))
         out.append(f"\x1b[{top};{left}H╭" + "─" * inner_w + "╮")
         for row, idx in enumerate(range(start, start + item_rows), top + 1):
-            text = self.comp_matches[idx][:inner_w].ljust(inner_w)
+            text = (" " + self.comp_matches[idx][:inner_w - 2] + " ").ljust(inner_w)
             out.append(f"\x1b[{row};{left}H│")
             if idx == self.comp_index:
                 out.append("\x1b[7m" + text + "\x1b[m")
@@ -1699,8 +1711,17 @@ class Editor:
         self.buf.dirty = True
         return text
 
+    def _change_case_range(self, sy, sx, ey, ex, func):
+        """Apply func to the half-open character range without touching registers."""
+        for y in range(sy, ey + 1):
+            line = self.buf.lines[y]
+            start = sx if y == sy else 0
+            end = ex if y == ey else len(line)
+            self.buf.lines[y] = line[:start] + func(line[start:end]) + line[end:]
+        self.buf.dirty = True
+
     def _exec_operator(self, op, motion_key, n, extra_n=None):
-        """Execute operator (d/y/c) with a motion."""
+        """Execute operator (d/y/c or case conversion) with a motion."""
         linewise = self._is_linewise_motion(motion_key)
         target = self._apply_motion(motion_key, n, extra_n=extra_n)
         if target is None:
@@ -1730,10 +1751,17 @@ class Editor:
         elif op == "c":
             self._delete_range(sy, sx, ty, tx, linewise)
             self._enter_insert()
+        elif op in ("g~", "gU", "gu"):
+            func = str.swapcase if op == "g~" else (str.upper if op == "gU" else str.lower)
+            if linewise:
+                sy, sx, ty, tx = sy, 0, ty, len(self.buf.lines[ty])
+            self._change_case_range(sy, sx, ty, tx, func)
 
     # ── Normal mode ────────────────────────────────────────────────────
 
     def handle_normal(self, key):
+        if key not in ("j", "k", "DOWN", "UP"):
+            self._sticky_cx = None
         if self._pending_ctrl_c:
             self._pending_ctrl_c = False
             if key == "CTRL_C":
@@ -1807,7 +1835,7 @@ class Editor:
                 self._open_quickfix_location()
             return
 
-        # 'g' prefix: wait for next key (gg, gc)
+        # 'g' prefix: wait for second key
         if self._pending_g:
             self._pending_g = False
             if key == "g":
@@ -1815,6 +1843,9 @@ class Editor:
             elif key == "c":
                 # gcc — toggle comment (enter pending for second c)
                 self._enter_op_pending("gc", n, extra_n)
+                return
+            elif key in ("~", "U", "u"):
+                self._enter_op_pending("g" + key, n, extra_n)
                 return
             else:
                 return
@@ -1907,7 +1938,7 @@ class Editor:
                     rng = self._find_quote_object("'", around=around)
                 if rng:
                     sy, sx, ey, ex = rng
-                    if op in ("d", "yd", "c"):
+                    if op in ("d", "yd", "c", "g~", "gU", "gu"):
                         self._snapshot()
                     if op == "d":
                         self._delete_range(sy, sx, ey, ex, copy=self.opt_delcopy)
@@ -1920,6 +1951,9 @@ class Editor:
                     elif op == "c":
                         self._delete_range(sy, sx, ey, ex)
                         self._enter_insert()
+                    else:
+                        func = str.swapcase if op == "g~" else (str.upper if op == "gU" else str.lower)
+                        self._change_case_range(sy, sx, ey, ex, func)
                 else:
                     self._save_dot()
                 self.pending_op = ""
@@ -1931,8 +1965,8 @@ class Editor:
             self.pending_op = ""
             self.pending_count = 0
             self.pending_extra_n = None
-            # Doubled operator = line-wise (dd, yy, cc, >>, <<)
-            if key == op or (op == "yd" and key == "d"):
+            # Doubled operator = line-wise (dd, yy, cc, >>, <<, g~~, gUU, guu)
+            if key == (op[-1] if op in ("g~", "gU", "gu") else op) or (op == "yd" and key == "d"):
                 if op == "d":
                     self._snapshot()
                     end = min(self.cy + op_n - 1, len(self.buf.lines) - 1)
@@ -1965,11 +1999,17 @@ class Editor:
                     self._snapshot()
                     self._dedent_lines(self.cy, op_n)
                     self._save_dot()
+                elif op in ("g~", "gU", "gu"):
+                    self._snapshot()
+                    end = min(self.cy + op_n - 1, len(self.buf.lines) - 1)
+                    func = str.swapcase if op == "g~" else (str.upper if op == "gU" else str.lower)
+                    self._change_case_range(self.cy, 0, end, len(self.buf.lines[end]), func)
+                    self._save_dot()
             else:
-                if op in ("d", "yd", "c"):
+                if op in ("d", "yd", "c", "g~", "gU", "gu"):
                     self._snapshot()
                 self._exec_operator(op, key, op_n * n, extra_n=extra_n)
-                if op in ("d", "yd"):
+                if op in ("d", "yd", "g~", "gU", "gu"):
                     self._save_dot()
                 # c enters insert — recording continues
             self._clamp_cursor()
@@ -2023,6 +2063,15 @@ class Editor:
             self._snapshot()
             self._delete_to_eol()
             self._enter_insert()
+        elif key == "~":
+            self._start_dot(n, "~")
+            line = self.buf.lines[self.cy]
+            end = min(self.cx + n, len(line))
+            if self.cx < end:
+                self._snapshot()
+                self._change_case_range(self.cy, self.cx, self.cy, end, str.swapcase)
+                self.cx = end
+            self._save_dot()
         elif key == "J":
             self._start_dot(n, "J")
             self._snapshot()
@@ -2079,6 +2128,7 @@ class Editor:
         elif key == ":":
             self.mode = Mode.COMMAND
             self.cmd = ""
+            self.cmd_cx = 0
         elif key == "i":
             self._start_dot(n, "i")
             self._snapshot()
@@ -2109,10 +2159,12 @@ class Editor:
             self.search_dir = 1
             self.mode = Mode.SEARCH
             self.cmd = ""
+            self.cmd_cx = 0
         elif key == "?":
             self.search_dir = -1
             self.mode = Mode.SEARCH
             self.cmd = ""
+            self.cmd_cx = 0
         elif key == "n":
             self._search_next(self.search_dir)
         elif key == "N":
@@ -2189,7 +2241,9 @@ class Editor:
             self._clamp_cursor()
             self._ensure_scroll()
         elif self.mode in (Mode.COMMAND, Mode.SEARCH):
-            self.cmd += text.replace("\n", " ")
+            text = text.replace("\n", " ")
+            self.cmd = self.cmd[:self.cmd_cx] + text + self.cmd[self.cmd_cx:]
+            self.cmd_cx += len(text)
         else:
             self.msg = "Paste ignored outside Insert/Command/Search"
 
@@ -2197,6 +2251,8 @@ class Editor:
         # Dot repeat recording in insert mode
         if self._recording and not self._replaying_dot:
             self._recording_keys.append(key)
+        if key not in ("UP", "DOWN"):
+            self._sticky_cx = None
         if key == "ESC":
             # Save dot recording if active
             self._save_dot()
@@ -2277,6 +2333,7 @@ class Editor:
             self.cmd = self._hist_draft
         else:
             self.cmd = hist[self._hist_idx]
+        self.cmd_cx = len(self.cmd)
 
     def _add_history(self, hist, text):
         if text and (not hist or hist[-1] != text):
@@ -2317,6 +2374,7 @@ class Editor:
         new_token = os.path.join(os.path.dirname(self.comp_token), name) if os.path.dirname(self.comp_token) else name
         sep = "" if self.comp_shell else " "
         self.cmd = (self.comp_head + sep + new_token).strip() if self.comp_head else new_token
+        self.cmd_cx = len(self.cmd)
 
     def _start_completion(self):
         ctx = self._completion_context()
@@ -2362,6 +2420,7 @@ class Editor:
         if key in ("ESC", "CTRL_C"):
             self.mode = Mode.NORMAL
             self.cmd = ""
+            self.cmd_cx = 0
             self._reset_history_nav()
             self._clear_completion()
             return
@@ -2381,18 +2440,33 @@ class Editor:
             self._clear_completion()
             self._exec_command(cmd)
             self.cmd = ""
+            self.cmd_cx = 0
+            return
+        if key == "LEFT":
+            self.cmd_cx = max(0, self.cmd_cx - 1)
+            return
+        if key == "RIGHT":
+            self.cmd_cx = min(len(self.cmd), self.cmd_cx + 1)
             return
         if key == "BACKSPACE":
-            if self.cmd:
+            if self.cmd_cx:
                 self._reset_history_nav()
-                self.cmd = self.cmd[:-1]
+                self.cmd = self.cmd[:self.cmd_cx - 1] + self.cmd[self.cmd_cx:]
+                self.cmd_cx -= 1
                 self._refresh_completion()
-            else:
+            elif not self.cmd:
                 self.mode = Mode.NORMAL
+            return
+        if key == "DEL":
+            if self.cmd_cx < len(self.cmd):
+                self._reset_history_nav()
+                self.cmd = self.cmd[:self.cmd_cx] + self.cmd[self.cmd_cx + 1:]
+                self._refresh_completion()
             return
         if len(key) == 1:
             self._reset_history_nav()
-            self.cmd += key
+            self.cmd = self.cmd[:self.cmd_cx] + key + self.cmd[self.cmd_cx:]
+            self.cmd_cx += 1
             self._refresh_completion()
 
     def _exec_command(self, raw):
@@ -2563,7 +2637,8 @@ class Editor:
         output = result.stdout if result.returncode in (0, 1) else result.stdout + result.stderr
         lines = output.splitlines()
         if not lines:
-            lines = ["(no matches)"]
+            self.msg = "rg: no matches"
+            return
         if self.quickfix_state in self.buffers:
             bs = self.quickfix_state
             bs.buf.lines = lines
@@ -2806,6 +2881,8 @@ class Editor:
     # ── Visual mode ────────────────────────────────────────────────────
 
     def handle_visual(self, key):
+        if key not in ("j", "k", "DOWN", "UP"):
+            self._sticky_cx = None
         if key == "ESC":
             self.mode = Mode.NORMAL
             return
@@ -2831,6 +2908,15 @@ class Editor:
                     self._toggle_comment(sy, ey - sy + 1)
                 self.mode = Mode.NORMAL
                 return
+            elif key in ("~", "U", "u"):
+                sel = self._selection_range()
+                if sel:
+                    sy, sx, ey, ex = sel
+                    self._snapshot()
+                    func = str.swapcase if key == "~" else (str.upper if key == "U" else str.lower)
+                    self._change_case_range(sy, sx, ey, min(ex + 1, len(self.buf.lines[ey])), func)
+                self.mode = Mode.NORMAL
+                return
             else:
                 return
         if key == "g":
@@ -2841,6 +2927,14 @@ class Editor:
             self._pending_find = key
             return
         # Edit operations on selection
+        if key == "~":
+            sel = self._selection_range()
+            if sel:
+                sy, sx, ey, ex = sel
+                self._snapshot()
+                self._change_case_range(sy, sx, ey, min(ex + 1, len(self.buf.lines[ey])), str.swapcase)
+            self.mode = Mode.NORMAL
+            return
         if key in ("d", "x"):
             self._snapshot()
             self._visual_delete()
@@ -2901,6 +2995,7 @@ class Editor:
         if key == "ESC":
             self.mode = Mode.NORMAL
             self.cmd = ""
+            self.cmd_cx = 0
             self._reset_history_nav()
             return
         if key == "UP":
@@ -2912,6 +3007,7 @@ class Editor:
         if key == "ENTER":
             pattern = self.cmd
             self.cmd = ""
+            self.cmd_cx = 0
             self.mode = Mode.NORMAL
             self._reset_history_nav()
             if pattern:
@@ -2920,16 +3016,29 @@ class Editor:
             if self.search_pattern:
                 self._search_next(self.search_dir)
             return
+        if key == "LEFT":
+            self.cmd_cx = max(0, self.cmd_cx - 1)
+            return
+        if key == "RIGHT":
+            self.cmd_cx = min(len(self.cmd), self.cmd_cx + 1)
+            return
         if key == "BACKSPACE":
-            if self.cmd:
+            if self.cmd_cx:
                 self._reset_history_nav()
-                self.cmd = self.cmd[:-1]
-            else:
+                self.cmd = self.cmd[:self.cmd_cx - 1] + self.cmd[self.cmd_cx:]
+                self.cmd_cx -= 1
+            elif not self.cmd:
                 self.mode = Mode.NORMAL
+            return
+        if key == "DEL":
+            if self.cmd_cx < len(self.cmd):
+                self._reset_history_nav()
+                self.cmd = self.cmd[:self.cmd_cx] + self.cmd[self.cmd_cx + 1:]
             return
         if len(key) == 1:
             self._reset_history_nav()
-            self.cmd += key
+            self.cmd = self.cmd[:self.cmd_cx] + key + self.cmd[self.cmd_cx:]
+            self.cmd_cx += 1
 
     def _search_next(self, direction):
         """Search for self.search_pattern in the given direction.
